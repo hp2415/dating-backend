@@ -1,0 +1,179 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dating-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dating}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dating_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-dating}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dating} -d ${POSTGRES_DB:-dating}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dating-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: dating-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - dating-net
+
+  # Local S3-compatible storage (stands in for Aliyun OSS in development)
+  minio:
+    image: minio/minio:latest
+    container_name: dating-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9010"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_API_PORT:-19000}:9000"
+      - "${MINIO_CONSOLE_PORT:-19010}:9010"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dating-net
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: dating-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
+      mc mb --ignore-existing local/$${OSS_BUCKET:-dating-media};
+      mc anonymous set download local/$${OSS_BUCKET:-dating-media}/public || true;
+      exit 0;
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      OSS_BUCKET: ${OSS_BUCKET:-dating-media}
+    networks:
+      - dating-net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dating-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dating}:${POSTGRES_PASSWORD:-dating_dev_password}@postgres:5432/${POSTGRES_DB:-dating}
+      REDIS_URL: redis://redis:6379/0
+      OSS_ENDPOINT: http://minio:9000
+      OSS_PUBLIC_ENDPOINT: http://localhost:${MINIO_API_PORT:-19000}
+      OSS_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      OSS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      OSS_BUCKET: ${OSS_BUCKET:-dating-media}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./app:/app/app
+      - ./workers:/app/workers
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - dating-net
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dating-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dating}:${POSTGRES_PASSWORD:-dating_dev_password}@postgres:5432/${POSTGRES_DB:-dating}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./app:/app/app
+      - ./workers:/app/workers
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    command: python -m workers.runner
+    networks:
+      - dating-net
+
+  admin:
+    build:
+      context: ../dating-admin-web
+      dockerfile: Dockerfile
+    container_name: dating-admin
+    restart: unless-stopped
+    environment:
+      VITE_API_PROXY: http://api:8000
+    ports:
+      - "${ADMIN_PORT:-5173}:5173"
+    volumes:
+      - ../dating-admin-web:/app
+      - admin_node_modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - dating-net
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  admin_node_modules:
+
+networks:
+  dating-net:
+    driver: bridge
