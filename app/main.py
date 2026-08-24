@@ -15,6 +15,7 @@ from app.modules.community.router import router as community_router
 from app.modules.discover.router import router as discover_router
 from app.modules.discover.seed import ensure_demo_users
 from app.modules.media.router import router as media_router
+from app.modules.recommend.router import router as recommend_router
 from app.modules.safety.router import router as safety_router
 from app.modules.user.router import router as user_router
 from app.shared.config import settings
@@ -61,6 +62,7 @@ app.include_router(user_router)
 app.include_router(media_router)
 app.include_router(discover_router)
 app.include_router(safety_router)
+app.include_router(recommend_router)
 app.include_router(activity_router)
 app.include_router(community_router)
 app.include_router(chat_router)

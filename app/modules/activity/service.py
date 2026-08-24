@@ -164,6 +164,12 @@ class ActivityService:
             )
         activity.join_count = int(activity.join_count or 0) + 1
         await self.db.commit()
+        try:
+            from app.modules.recommend.service import RecommendService
+
+            await RecommendService(self.db).record_engagement_silent(user.id, activity, "join")
+        except Exception:  # noqa: BLE001
+            pass
         return {"joined": True, "join_count": activity.join_count, "already": False}
 
     async def quit(self, user: User, activity_id: UUID) -> dict:
@@ -217,6 +223,12 @@ class ActivityService:
         self.db.add(ActivityLike(id=uuid4(), activity_id=activity_id, user_id=user.id))
         activity.like_count = int(activity.like_count or 0) + 1
         await self.db.commit()
+        try:
+            from app.modules.recommend.service import RecommendService
+
+            await RecommendService(self.db).record_engagement_silent(user.id, activity, "favorite")
+        except Exception:  # noqa: BLE001
+            pass
         return {"liked": True, "like_count": activity.like_count}
 
     async def unlike(self, user: User, activity_id: UUID) -> dict:
