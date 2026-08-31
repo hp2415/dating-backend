@@ -41,6 +41,7 @@ services:
       - dating-net
 
   minio:
+    profiles: ["minio"]
     image: minio/minio:latest
     container_name: dating-minio
     restart: unless-stopped
@@ -59,6 +60,7 @@ services:
       - dating-net
 
   minio-init:
+    profiles: ["minio"]
     image: minio/mc:latest
     container_name: dating-minio-init
     depends_on:

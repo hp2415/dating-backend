@@ -3,6 +3,7 @@
 #   .\deploy\scripts\first-up.ps1 -ReuseInfra -Postgres dating-postgres -Redis dating-redis
 param(
     [switch]$ReuseInfra,
+    [switch]$Minio,
     [string]$EnvFile = "",
     [string]$Postgres = "dating-postgres",
     [string]$Redis = "dating-redis"
@@ -60,12 +61,18 @@ if ($ReuseInfra) {
     Write-Host "Reusing $Postgres / $Redis"
     docker network connect dating-net $Postgres 2>$null
     docker network connect dating-net $Redis 2>$null
-    docker @infra up -d minio minio-init
 } else {
-    docker @infra up -d
+    docker @infra up -d postgres redis
     if ($LASTEXITCODE -ne 0) { throw "infra up failed" }
     Wait-Healthy dating-postgres
     Wait-Healthy dating-redis
+}
+
+if ($Minio) {
+    Write-Host "Starting MinIO"
+    docker @infra --profile minio up -d minio minio-init
+} else {
+    Write-Host "Skipping MinIO. Point OSS_* at Aliyun OSS."
 }
 
 docker @app up -d --build

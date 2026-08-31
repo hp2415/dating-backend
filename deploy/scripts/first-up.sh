@@ -11,16 +11,18 @@ BACKEND_DIR="$(cd "$DEPLOY_DIR/.." && pwd)"
 
 REUSE_INFRA=0
 LOCAL=0
+WITH_MINIO=0
 ENV_FILE=""
 POSTGRES_CONTAINER="dating-postgres"
 REDIS_CONTAINER="dating-redis"
 
 usage() {
   cat <<'EOF'
-Usage: first-up.sh [--local] [--reuse-infra] [--env-file PATH] [--postgres NAME] [--redis NAME]
+Usage: first-up.sh [--local] [--reuse-infra] [--minio] [--env-file PATH] [--postgres NAME] [--redis NAME]
 
   --local         Publish local ports (5432/6379/8000/8080/MinIO)
   --reuse-infra   Do not start Postgres/Redis; attach existing containers to dating-net
+  --minio         Also start MinIO (needs Docker Hub). Default: skip; use Aliyun OSS via OSS_*
   --env-file      Default: /opt/dating/.env if present, else dating-backend/.env
   --postgres      Container name when reusing (default dating-postgres)
   --redis         Container name when reusing (default dating-redis)
@@ -31,6 +33,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --reuse-infra) REUSE_INFRA=1; shift ;;
     --local) LOCAL=1; shift ;;
+    --minio) WITH_MINIO=1; shift ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --postgres) POSTGRES_CONTAINER="$2"; shift 2 ;;
     --redis) REDIS_CONTAINER="$2"; shift 2 ;;
@@ -105,12 +108,17 @@ if [[ "$REUSE_INFRA" -eq 1 ]]; then
   echo "Reusing $POSTGRES_CONTAINER and $REDIS_CONTAINER"
   attach_container "$POSTGRES_CONTAINER"
   attach_container "$REDIS_CONTAINER"
-  echo "Starting MinIO only (skip if you already use Aliyun OSS)"
-  "${infra_cmd[@]}" up -d minio minio-init
 else
-  "${infra_cmd[@]}" up -d
+  "${infra_cmd[@]}" up -d postgres redis
   wait_healthy dating-postgres
   wait_healthy dating-redis
+fi
+
+if [[ "$WITH_MINIO" -eq 1 ]]; then
+  echo "Starting MinIO (Docker Hub)"
+  "${infra_cmd[@]}" --profile minio up -d minio minio-init
+else
+  echo "Skipping MinIO. Point OSS_* at Aliyun OSS (see deploy/.env.example)."
 fi
 
 "${app_cmd[@]}" up -d --build
