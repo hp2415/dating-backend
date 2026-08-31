@@ -1,0 +1,91 @@
+# Persistent dependencies. Start once; do not recreate on app deploys.
+# Usage:
+#   docker compose -p dating-infra -f deploy/compose.infra.yml --env-file .env up -d
+# Local ports (5432/6379/MinIO): also pass -f deploy/compose.infra.local.yml
+
+name: dating-infra
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dating-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dating}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dating_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-dating}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dating-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: dating-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - dating-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: dating-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9010"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dating-net
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: dating-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
+      mc mb --ignore-existing local/$${OSS_BUCKET:-dating-media};
+      mc anonymous set download local/$${OSS_BUCKET:-dating-media}/public || true;
+      exit 0;
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      OSS_BUCKET: ${OSS_BUCKET:-dating-media}
+    networks:
+      - dating-net
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  dating-net:
+    name: dating-net
+    external: true
