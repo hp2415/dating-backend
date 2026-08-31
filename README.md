@@ -21,7 +21,7 @@ docker compose up -d --build
 - API docs: http://localhost:8000/docs
 - Health: http://localhost:8000/health
 
-拆分部署（infra 与 app 分开，云上发版只更新 app）见 [`deploy/`](./deploy/) 与仓库根目录 [`DEPLOYMENT_SETUP.md`](../DEPLOYMENT_SETUP.md)。
+拆分部署（infra 与 app 分开，云上发版只更新 app）见 [`deploy/`](./deploy/)（含 [运维速查 deploy/helper.md](./deploy/helper.md)）与仓库根目录 [`DEPLOYMENT_SETUP.md`](../DEPLOYMENT_SETUP.md)。
 
 Migrations run automatically on API container start (`alembic upgrade head`).
 
