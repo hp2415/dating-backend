@@ -59,6 +59,8 @@ fi
 
 export ENV_FILE
 
+# Containers always load dating-backend/.env (../.env relative to deploy/).
+
 ensure_network() {
   docker network inspect dating-net >/dev/null 2>&1 || docker network create dating-net
 }

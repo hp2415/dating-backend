@@ -1,16 +1,15 @@
-FROM python:3.12-slim
+ARG PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.12-slim
+FROM ${PYTHON_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl build-essential libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
+# asyncpg ships manylinux wheels — no apt/build tools needed (avoids deb.debian.org in CN builds)
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 

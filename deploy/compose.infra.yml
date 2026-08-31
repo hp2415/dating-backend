@@ -7,7 +7,7 @@ name: dating-infra
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-docker.m.daocloud.io/library/postgres:16-alpine}
     container_name: dating-postgres
     restart: unless-stopped
     environment:
@@ -26,7 +26,7 @@ services:
       - dating-net
 
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-docker.m.daocloud.io/library/redis:7-alpine}
     container_name: dating-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
