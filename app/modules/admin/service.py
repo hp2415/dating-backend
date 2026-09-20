@@ -17,6 +17,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "auditor": [
         "dashboard:read",
         "user:read",
+        "user:write",
         "moderation:read",
         "moderation:write",
         "report:read",
@@ -53,6 +54,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "support": [
         "dashboard:read",
         "user:read",
+        "user:write",
         "report:read",
         "report:write",
         "activity:read",

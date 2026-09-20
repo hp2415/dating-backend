@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AdminUser
@@ -332,28 +333,145 @@ async def admin_send_campaign(
 # ── SMS config / logs ──────────────────────────────────────
 
 
-@router.get("/config/sms")
-async def admin_sms_config(
-    request: Request,
-    admin: AdminUser = Depends(require_perm("config:read")),
-):
-    _ = admin
+class SmsConfigUpdate(BaseModel):
+    """空字符串表示密钥不修改；None 表示该字段不改。"""
+
+    allow_dev_code: bool | None = None
+    daily_limit: int | None = Field(default=None, ge=1, le=500)
+    send_interval_seconds: int | None = Field(default=None, ge=10, le=3600)
+    whitelist: str | None = None
+    sign_name: str | None = None
+    template_code: str | None = None
+    access_key_id: str | None = None
+    access_key_secret: str | None = None
+    provider: str | None = None
+
+
+def _sms_config_payload() -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func, select
+
     from app.modules.auth.sms_provider import sms_status
     from app.shared.config import settings
 
     status = sms_status()
-    return ok(
-        {
-            **status,
-            "dev_code_configured": bool(settings.sms_dev_code),
-            "whitelist_count": len(
-                [p for p in settings.sms_dev_phone_whitelist.split(",") if p.strip()]
-            ),
-            "access_key_set": bool(settings.sms_access_key_id),
-            "note": "通道切换请改服务器 .env 后重启；密钥不回显。",
-        },
-        request_id=get_request_id(request),
+    return {
+        **status,
+        "dev_code_configured": bool(settings.sms_dev_code),
+        "whitelist": settings.sms_dev_phone_whitelist or "",
+        "whitelist_count": len(
+            [p for p in settings.sms_dev_phone_whitelist.split(",") if p.strip()]
+        ),
+        "daily_limit": settings.sms_daily_limit,
+        "send_interval_seconds": settings.sms_send_interval_seconds,
+        "sign_name": settings.sms_sign_name or "",
+        "template_code": settings.sms_template_code or "",
+        "access_key_set": bool(settings.sms_access_key_id),
+        "access_key_id_masked": (
+            (settings.sms_access_key_id[:4] + "****") if settings.sms_access_key_id else ""
+        ),
+        "note": "provider 切换建议改 .env 后重启；密钥回显掩码，PUT 空值表示不修改。",
+    }
+
+
+@router.get("/config/sms")
+async def admin_sms_config(
+    request: Request,
+    admin: AdminUser = Depends(require_perm("config:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = admin
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func, select
+
+    from app.models import SmsSendLog
+
+    payload = _sms_config_payload()
+    since = datetime.now(timezone.utc) - timedelta(days=7)
+    total_7d = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(SmsSendLog).where(SmsSendLog.created_at >= since)
+            )
+        ).scalar_one()
+        or 0
     )
+    sent_7d = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(SmsSendLog)
+                .where(SmsSendLog.created_at >= since, SmsSendLog.status == "sent")
+            )
+        ).scalar_one()
+        or 0
+    )
+    failed_7d = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(SmsSendLog)
+                .where(SmsSendLog.created_at >= since, SmsSendLog.status == "failed")
+            )
+        ).scalar_one()
+        or 0
+    )
+    payload["stats_7d"] = {
+        "total": total_7d,
+        "sent": sent_7d,
+        "failed": failed_7d,
+        "success_rate": round(sent_7d / total_7d, 4) if total_7d else None,
+    }
+    return ok(payload, request_id=get_request_id(request))
+
+
+@router.put("/config/sms")
+async def admin_sms_config_update(
+    body: SmsConfigUpdate,
+    request: Request,
+    admin: AdminUser = Depends(require_perm("config:write")),
+):
+    """Runtime patch for non-secret SMS knobs. Provider switch may need restart."""
+    from app.shared.config import settings
+
+    changed: list[str] = []
+    if body.allow_dev_code is not None:
+        settings.sms_allow_dev_code = body.allow_dev_code
+        changed.append("allow_dev_code")
+    if body.daily_limit is not None:
+        settings.sms_daily_limit = body.daily_limit
+        changed.append("daily_limit")
+    if body.send_interval_seconds is not None:
+        settings.sms_send_interval_seconds = body.send_interval_seconds
+        changed.append("send_interval_seconds")
+    if body.whitelist is not None:
+        settings.sms_dev_phone_whitelist = body.whitelist
+        changed.append("whitelist")
+    if body.sign_name is not None:
+        settings.sms_sign_name = body.sign_name
+        changed.append("sign_name")
+    if body.template_code is not None:
+        settings.sms_template_code = body.template_code
+        changed.append("template_code")
+    if body.access_key_id:
+        settings.sms_access_key_id = body.access_key_id
+        changed.append("access_key_id")
+    if body.access_key_secret:
+        settings.sms_access_key_secret = body.access_key_secret
+        changed.append("access_key_secret")
+    restart_hint = False
+    if body.provider is not None and body.provider.strip():
+        settings.sms_provider = body.provider.strip().lower()
+        changed.append("provider")
+        restart_hint = True
+
+    _ = admin
+    data = _sms_config_payload()
+    data["changed"] = changed
+    data["restart_recommended"] = restart_hint
+    return ok(data, request_id=get_request_id(request))
 
 
 @router.post("/config/sms/test-send")

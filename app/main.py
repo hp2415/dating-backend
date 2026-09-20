@@ -28,6 +28,7 @@ from app.modules.admin.messaging import router as admin_messaging_router
 from app.modules.admin.companion import router as admin_companion_router
 from app.modules.admin.trust import router as admin_trust_router
 from app.modules.admin.ops import router as admin_ops_router
+from app.modules.admin.users import router as admin_users_router
 from app.modules.companion.router import router as companion_router
 from app.modules.trust.router import router as trust_router
 from app.modules.ops.router import router as ops_router
@@ -110,6 +111,7 @@ app.include_router(admin_messaging_router)
 app.include_router(admin_companion_router)
 app.include_router(admin_trust_router)
 app.include_router(admin_ops_router)
+app.include_router(admin_users_router)
 app.include_router(events_ops_router)
 
 if settings.storage_driver == "local":

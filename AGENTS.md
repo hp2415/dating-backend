@@ -22,7 +22,8 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 - 统一分页：`page_info`（admin 列表仍保留 `total/limit/offset` 兼容）
 - 全局 500 兜底 + 可选 Sentry（`SENTRY_DSN`）
 - PostGIS：本地 compose 用 `postgis/postgis:16-3.4`；迁移在扩展可用时启用
-- 测试：`pytest tests/`；冒烟：`scripts/smoke_m3.ps1`
+- 测试：`pytest tests/`；冒烟：`scripts/smoke_m3.ps1` … `smoke_m8.ps1`、`smoke_e2e_app.ps1` / `.sh`、`smoke_media_local.ps1` / `.sh`
+- 内容冷启动（手动）：`python scripts/seed_content.py --base http://127.0.0.1:8000`
 
 ## M4 交易履约（已落地 · 支付为 stub）
 

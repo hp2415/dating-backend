@@ -194,6 +194,27 @@ async def admin_review_moderation_task(
     return ok(data, request_id=get_request_id(request))
 
 
+MODERATION_REASON_CODES = [
+    {"code": "spam", "label": "垃圾信息 / 广告引流"},
+    {"code": "harassment", "label": "骚扰 / 人身攻击"},
+    {"code": "inappropriate", "label": "不当内容"},
+    {"code": "fake", "label": "虚假资料 / 冒充"},
+    {"code": "unsafe", "label": "线下安全风险"},
+    {"code": "illegal", "label": "违法违规"},
+    {"code": "low_quality", "label": "信息过少 / 低质"},
+    {"code": "other", "label": "其他"},
+]
+
+
+@router.get("/moderation/reason-codes")
+async def admin_moderation_reason_codes(
+    request: Request,
+    admin: AdminUser = Depends(require_perm("moderation:read")),
+):
+    _ = admin
+    return ok({"items": MODERATION_REASON_CODES}, request_id=get_request_id(request))
+
+
 @router.get("/sensitive-words")
 async def admin_list_sensitive_words(
     request: Request,
