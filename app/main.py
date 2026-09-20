@@ -73,7 +73,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.9.1",
+    version="0.9.2",
     default_response_class=ORJSONResponse,
     lifespan=lifespan,
 )
@@ -190,7 +190,7 @@ async def health(request: Request):
         {
             "app": settings.app_name,
             "env": settings.app_env,
-            "version": "0.9.1",
+            "version": "0.9.2",
             "postgres": {"ok": pg_ok, "error": pg_error, "postgis": postgis_ok},
             "redis": {"ok": redis_ok, "error": redis_error},
             "worker": {"ok": worker_ok},

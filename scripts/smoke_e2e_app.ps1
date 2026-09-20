@@ -19,8 +19,8 @@ function AdminToken() {
 }
 
 $suffix = Get-Date -Format "HHmmss"
-$phoneA = "136" + $suffix.PadLeft(8, "0")
-$phoneB = "137" + $suffix.PadLeft(8, "0")
+$phoneA = "13600" + $suffix
+$phoneB = "13700" + $suffix
 
 Write-Host "== base=$base =="
 Write-Host "== login A/B =="
@@ -59,7 +59,18 @@ Write-Host ("wallet_balance=" + $wallet.data.balance_cents)
 if ($wallet.data.balance_cents -lt 10000) { throw "expected topup credited" }
 
 Write-Host "== admin user lookup =="
-$users = Invoke-RestMethod -Method Get -Uri "$base/admin/v1/users?q=$phoneA&limit=5" -Headers @{ Authorization = "Bearer $admin" }
-if (-not $users.data.items -or $users.data.items.Count -lt 1) { throw "admin users should find phoneA" }
+# Needs backend >= 0.9.2 (admin users router). Rebuild if this 404s.
+try {
+  $users = Invoke-RestMethod -Method Get -Uri "$base/admin/v1/users?q=$phoneA&limit=5" -Headers @{ Authorization = "Bearer $admin" }
+} catch {
+  throw "admin /users unavailable or failed (rebuild API?): $($_.Exception.Message)"
+}
+if ($null -eq $users.code -or $users.code -ne 0) {
+  throw "admin /users failed: $(ConvertTo-Json $users -Compress)"
+}
+if (-not $users.data.items -or $users.data.items.Count -lt 1) {
+  throw "admin users should find phoneA; response=$(ConvertTo-Json $users -Compress)"
+}
+Write-Host ("admin_users_hit=" + $users.data.items.Count)
 
 Write-Host "E2E_APP SMOKE OK activity=$aid post=$pid"

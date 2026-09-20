@@ -40,9 +40,10 @@ admin_token() {
   jget "$resp" "t=d['data']['access_token']; assert t; print(t)"
 }
 
+# HHmmss is 6 digits; pad to 11-digit CN mobile without bash octal (08xxxx).
 SUFFIX=$(date +%H%M%S)
-PHONE_A="136$(printf '%08d' "$SUFFIX")"
-PHONE_B="137$(printf '%08d' "$SUFFIX")"
+PHONE_A="13600${SUFFIX}"
+PHONE_B="13700${SUFFIX}"
 
 echo "== base=$BASE =="
 echo "== login A/B phoneA=$PHONE_A =="
@@ -87,11 +88,19 @@ assert bal>=10000, 'expected topup credited'
 "
 
 echo "== admin user lookup =="
-USERS=$(json GET "$BASE/admin/v1/users?q=$PHONE_A&limit=5" "" "$ADMIN")
+# Needs backend >= 0.9.2 (admin users router). Rebuild if this 404s.
+USERS=$(curl -sS -G "$BASE/admin/v1/users" \
+  --data-urlencode "q=$PHONE_A" \
+  --data-urlencode "limit=5" \
+  -H "Authorization: Bearer $ADMIN" \
+  -H "Content-Type: application/json")
 jget "$USERS" "
-items=(d.get('data') or {}).get('items') or []
-assert len(items)>=1, 'admin users should find phoneA'
-print(f'admin_users_hit={len(items)}')
+if d.get('detail') is not None or d.get('code') not in (0, None):
+    raise AssertionError('admin /users unavailable or failed (rebuild API?): ' + str(d)[:400])
+assert d.get('code') == 0, 'admin /users failed: ' + str(d)[:400]
+items = (d.get('data') or {}).get('items') or []
+assert len(items) >= 1, 'admin users should find phoneA; response=' + str(d)[:400]
+print(f\"admin_users_hit={len(items)} id={items[0].get('id')}\")
 "
 
 echo "E2E_APP SMOKE OK activity=$AID post=$PID"
