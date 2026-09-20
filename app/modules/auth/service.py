@@ -68,14 +68,15 @@ class AuthService:
     async def login(self, phone: str, code: str, device_id: str, platform: str) -> dict:
         phone = normalize_phone(phone)
         stored = await self.redis.get(f"sms:code:{phone}")
-        if stored is None:
+        # Dev convenience: docs say code 123456 works without a prior send.
+        dev_bypass = settings.app_env == "development" and code == settings.sms_dev_code
+        if stored is None and not dev_bypass:
             raise AppError(ErrorCodes.AUTH_CODE_EXPIRED, "验证码已过期，请重新获取")
-        if stored != code and not (
-            settings.app_env == "development" and code == settings.sms_dev_code
-        ):
+        if stored is not None and stored != code and not dev_bypass:
             raise AppError(ErrorCodes.AUTH_CODE_INVALID, "验证码错误")
 
-        await self.redis.delete(f"sms:code:{phone}")
+        if stored is not None:
+            await self.redis.delete(f"sms:code:{phone}")
 
         result = await self.db.execute(
             select(User)
