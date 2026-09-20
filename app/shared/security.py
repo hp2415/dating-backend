@@ -41,6 +41,32 @@ def decode_token(token: str) -> dict[str, Any]:
     return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
 
 
+def create_media_upload_token(
+    *,
+    owner_id: str,
+    object_key: str,
+    content_type: str,
+) -> str:
+    """Short-lived token for PUT /api/v1/media/upload (no Authorization header needed)."""
+    payload = {
+        "sub": owner_id,
+        "type": "media_upload",
+        "object_key": object_key,
+        "content_type": content_type,
+        "iat": _now(),
+        "exp": _now() + timedelta(seconds=settings.media_upload_token_ttl_seconds),
+        "jti": str(uuid4()),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+
+def decode_media_upload_token(token: str) -> dict[str, Any]:
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    if payload.get("type") != "media_upload":
+        raise jwt.InvalidTokenError("not a media upload token")
+    return payload
+
+
 def create_admin_access_token(*, admin_id: str, role: str, username: str) -> str:
     payload = {
         "sub": admin_id,

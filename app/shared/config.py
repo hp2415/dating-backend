@@ -21,11 +21,27 @@ class Settings(BaseSettings):
     oss_bucket: str = "dating-media"
     oss_region: str = "us-east-1"
 
-    # Development SMS: fixed code accepted; real SMS provider later
+    # Media storage: local disk by default; set STORAGE_DRIVER=oss to use MinIO/Aliyun.
+    # Contract (sts → PUT → complete) is unchanged when switching drivers.
+    storage_driver: str = "local"  # local | oss
+    media_local_root: str = "./data/media"
+    media_public_base: str = ""  # e.g. http://123.56.118.242 ; empty → derive from request
+    media_upload_token_ttl_seconds: int = 600
+    media_max_upload_bytes: int = 20 * 1024 * 1024
+    media_auto_approve: bool = True  # decoupled from APP_ENV
+
+    # SMS: provider abstraction (log = no external send). Dev code decoupled from APP_ENV.
+    sms_provider: str = "log"  # log | aliyun | tencent
     sms_dev_code: str = "123456"
+    sms_allow_dev_code: bool = True  # local/staging; set false in production
+    sms_dev_phone_whitelist: str = ""  # comma-separated; always allow fixed code
     sms_code_ttl_seconds: int = 300
     sms_send_interval_seconds: int = 60
     sms_daily_limit: int = 20
+    sms_sign_name: str = ""
+    sms_template_code: str = ""
+    sms_access_key_id: str = ""
+    sms_access_key_secret: str = ""
 
     # Age gate
     min_age: int = 18

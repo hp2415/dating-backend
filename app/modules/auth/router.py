@@ -15,7 +15,12 @@ async def sms_send(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    data = await AuthService(db).send_sms(body.phone)
+    client_ip = request.client.host if request.client else None
+    data = await AuthService(db).send_sms(
+        body.phone,
+        client_ip=client_ip,
+        request_id=get_request_id(request),
+    )
     return ok(data, request_id=get_request_id(request))
 
 

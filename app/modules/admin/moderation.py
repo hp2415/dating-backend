@@ -180,7 +180,13 @@ class ModerationService:
 
     async def list_media(self, audit_status: str | None, limit: int, offset: int) -> dict:
         audit_status = audit_status or AuditStatus.PENDING.value
-        stmt = select(MediaAsset).order_by(MediaAsset.created_at.desc()).offset(offset).limit(limit)
+        stmt = (
+            select(MediaAsset)
+            .where(MediaAsset.deleted_at.is_(None))
+            .order_by(MediaAsset.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
         if audit_status != "all":
             stmt = stmt.where(MediaAsset.audit_status == audit_status)
         result = await self.db.execute(stmt)
@@ -202,15 +208,12 @@ class ModerationService:
                     "created_at": m.created_at.isoformat() if m.created_at else "",
                 }
             )
+        base_count = select(func.count()).select_from(MediaAsset).where(MediaAsset.deleted_at.is_(None))
         if audit_status == "all":
-            total = int(await self.db.scalar(select(func.count()).select_from(MediaAsset)) or 0)
+            total = int(await self.db.scalar(base_count) or 0)
         else:
             total = int(
-                await self.db.scalar(
-                    select(func.count())
-                    .select_from(MediaAsset)
-                    .where(MediaAsset.audit_status == audit_status)
-                )
+                await self.db.scalar(base_count.where(MediaAsset.audit_status == audit_status))
                 or 0
             )
         return legacy_admin_page(items, total=total, limit=limit, offset=offset)

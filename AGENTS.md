@@ -64,7 +64,16 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 - 客户端：`/taxonomies` · `/discover/shelves` · `/me/push-token` · `/notifications` · `/announcements` · `/feedbacks`
 - 运营：分类/货架/公告/反馈/推送任务（`config:*` / `push:write`）；启动时种子默认分类
 - 冒烟：`scripts/smoke_m8.ps1`；单测：`tests/test_m6_m8_foundation.py`
-- 当前版本：`0.8.0`
+
+## 媒体本地存储 + 短信抽象（0.9.0）
+
+- `STORAGE_DRIVER=local|oss`：客户端合同仍是 `POST /media/sts` → PUT → `POST /media/complete`
+- 本地：`PUT /api/v1/media/upload?token=`（短时 JWT）落盘 `MEDIA_LOCAL_ROOT`；nginx `/media/` 或 FastAPI `StaticFiles` 直出
+- 相册：`GET/DELETE /api/v1/me/media`
+- `MEDIA_AUTO_APPROVE` / `SMS_ALLOW_DEV_CODE` 与 `APP_ENV` 解耦
+- 短信：`SmsProvider`（默认 `log`）+ 表 `sms_send_logs`；运营 `GET /admin/v1/config/sms` · `POST .../test-send` · `GET /admin/v1/sms-logs`
+- 冒烟：`scripts/smoke_media_local.ps1`；单测：`tests/test_media_local_sms.py`
+- 当前版本：`0.9.0`
 
 本地若从旧 `postgres:16-alpine` 升级，需重建数据卷一次（仅开发环境）：
 

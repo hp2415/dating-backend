@@ -1,16 +1,19 @@
 from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.modules.activity.router import router as activity_router
 from app.modules.admin.router import router as admin_router
 from app.modules.admin.seed import ensure_default_admin
 from app.modules.auth.router import router as auth_router
+from app.modules.auth.sms_provider import sms_status
 from app.modules.chat_gate.router import router as chat_router
 from app.modules.community.router import router as community_router
 from app.modules.discover.router import router as discover_router
@@ -28,7 +31,9 @@ from app.modules.companion.router import router as companion_router
 from app.modules.trust.router import router as trust_router
 from app.modules.ops.router import router as ops_router
 from app.modules.ops.seed import ensure_default_taxonomies
+from app.modules.media.router import me_router as media_me_router
 from app.modules.media.router import router as media_router
+from app.modules.media.storage import get_storage
 from app.modules.messaging.router import router as messaging_router
 from app.modules.recommend.router import router as recommend_router
 from app.modules.safety.router import router as safety_router
@@ -52,6 +57,8 @@ async def lifespan(_: FastAPI):
         await conn.execute(text("SELECT 1"))
     redis = get_redis()
     await redis.ping()
+    if settings.storage_driver == "local":
+        Path(settings.media_local_root).mkdir(parents=True, exist_ok=True)
     async with SessionLocal() as session:
         await ensure_default_admin(session)
         await ensure_demo_users(session)
@@ -64,7 +71,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.8.0",
+    version="0.9.0",
     default_response_class=ORJSONResponse,
     lifespan=lifespan,
 )
@@ -82,6 +89,7 @@ app.add_middleware(RequestIdMiddleware)
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(media_router)
+app.include_router(media_me_router)
 app.include_router(discover_router)
 app.include_router(safety_router)
 app.include_router(recommend_router)
@@ -101,6 +109,10 @@ app.include_router(admin_companion_router)
 app.include_router(admin_trust_router)
 app.include_router(admin_ops_router)
 app.include_router(events_ops_router)
+
+if settings.storage_driver == "local":
+    Path(settings.media_local_root).mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=settings.media_local_root), name="media")
 
 
 @app.exception_handler(AppError)
@@ -168,12 +180,13 @@ async def health(request: Request):
     except Exception as exc:  # noqa: BLE001
         redis_error = str(exc)
 
+    storage = get_storage()
     status = "ok" if pg_ok and redis_ok else "degraded"
     return ok(
         {
             "app": settings.app_name,
             "env": settings.app_env,
-            "version": "0.8.0",
+            "version": "0.9.0",
             "postgres": {"ok": pg_ok, "error": pg_error, "postgis": postgis_ok},
             "redis": {"ok": redis_ok, "error": redis_error},
             "worker": {"ok": worker_ok},
@@ -182,8 +195,15 @@ async def health(request: Request):
                 "stub_auto_complete": settings.payment_stub_auto_complete,
             },
             "im": {"provider": settings.im_provider, "ready": settings.im_provider != "noop"},
-            "oss_endpoint": settings.oss_endpoint,
-            "oss_bucket": settings.oss_bucket,
+            "sms": sms_status(),
+            "storage": {
+                "driver": settings.storage_driver,
+                "provider": storage.name,
+                "media_auto_approve": settings.media_auto_approve,
+                "local_root": settings.media_local_root if settings.storage_driver == "local" else None,
+                "oss_endpoint": settings.oss_endpoint if settings.storage_driver == "oss" else None,
+                "oss_bucket": settings.oss_bucket if settings.storage_driver == "oss" else None,
+            },
         },
         message=status,
         request_id=getattr(request.state, "request_id", None),

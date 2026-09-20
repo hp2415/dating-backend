@@ -94,6 +94,12 @@ services:
       APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dating}:${POSTGRES_PASSWORD:-dating_dev_password}@postgres:5432/${POSTGRES_DB:-dating}
       REDIS_URL: redis://redis:6379/0
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      MEDIA_LOCAL_ROOT: /data/media
+      MEDIA_PUBLIC_BASE: ${MEDIA_PUBLIC_BASE:-http://localhost:${API_PORT:-8000}}
+      MEDIA_AUTO_APPROVE: ${MEDIA_AUTO_APPROVE:-true}
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      SMS_ALLOW_DEV_CODE: ${SMS_ALLOW_DEV_CODE:-true}
       OSS_ENDPOINT: http://minio:9000
       OSS_PUBLIC_ENDPOINT: http://localhost:${MINIO_API_PORT:-19000}
       OSS_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
@@ -106,6 +112,7 @@ services:
       - ./workers:/app/workers
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./data/media:/data/media
     depends_on:
       postgres:
         condition: service_healthy

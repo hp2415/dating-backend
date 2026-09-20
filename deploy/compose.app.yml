@@ -22,11 +22,19 @@ services:
       APP_ENV: ${APP_ENV:-staging}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dating}:${POSTGRES_PASSWORD:-dating_dev_password}@${POSTGRES_HOST:-127.0.0.1}:5432/${POSTGRES_DB:-dating}
       REDIS_URL: ${REDIS_URL:-redis://127.0.0.1:6379/0}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      MEDIA_LOCAL_ROOT: ${MEDIA_LOCAL_ROOT:-/data/media}
+      MEDIA_PUBLIC_BASE: ${MEDIA_PUBLIC_BASE:-}
+      MEDIA_AUTO_APPROVE: ${MEDIA_AUTO_APPROVE:-true}
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      SMS_ALLOW_DEV_CODE: ${SMS_ALLOW_DEV_CODE:-true}
       OSS_ENDPOINT: ${OSS_ENDPOINT:-http://minio:9000}
       OSS_PUBLIC_ENDPOINT: ${OSS_PUBLIC_ENDPOINT:-http://127.0.0.1:19000}
       OSS_ACCESS_KEY: ${OSS_ACCESS_KEY:-${MINIO_ROOT_USER:-minioadmin}}
       OSS_SECRET_KEY: ${OSS_SECRET_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
       OSS_BUCKET: ${OSS_BUCKET:-dating-media}
+    volumes:
+      - ${MEDIA_HOST_DIR:-/work_place/dating-backend/data/media}:/data/media
     command: >
       sh -c "alembic upgrade head &&
       uvicorn app.main:app --host 0.0.0.0 --port 8000"
@@ -83,6 +91,7 @@ services:
     network_mode: host
     volumes:
       - ./nginx/dating.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${MEDIA_HOST_DIR:-/work_place/dating-backend/data/media}:/srv/media:ro
     depends_on:
       api:
         condition: service_healthy

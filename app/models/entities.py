@@ -129,6 +129,26 @@ class MediaAsset(Base):
     audit_status: Mapped[str] = mapped_column(String(16), default=AuditStatus.PENDING.value, nullable=False)
     meta: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class SmsSendLog(Base):
+    """SMS send ledger — required before wiring a real provider."""
+
+    __tablename__ = "sms_send_logs"
+
+    id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    phone_masked: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    scene: Mapped[str] = mapped_column(String(24), default="login", nullable=False)
+    provider: Mapped[str] = mapped_column(String(24), default="log", nullable=False)
+    template_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="sent", nullable=False, index=True)
+    provider_msg_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    request_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class RefreshToken(Base):
@@ -281,7 +301,7 @@ class CommunityPost(Base):
     id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     author_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    # [{type: image|video, url, media_id?}] — OSS upload reserved via media_id / STS post_* types
+    # [{type: image|video, url, media_id?}] â OSS upload reserved via media_id / STS post_* types
     media: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default=PostStatus.PENDING.value, nullable=False, index=True)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -338,7 +358,7 @@ class ParticipantStatus(str, Enum):
 
 
 class Activity(Base):
-    """找搭子活动：详情页聚合标题/图片/地址/时间/报名。"""
+    """æ¾æ­å­æ´»å¨ï¼è¯¦æé¡µèåæ é¢/å¾ç/å°å/æ¶é´/æ¥åã"""
 
     __tablename__ = "activities"
 
@@ -387,7 +407,7 @@ class ActivityParticipant(Base):
 
 
 class ActivityComment(Base):
-    """活动动态评论（原社区帖子互动并入活动）。"""
+    """æ´»å¨å¨æè¯è®ºï¼åç¤¾åºå¸å­äºå¨å¹¶å¥æ´»å¨ï¼ã"""
 
     __tablename__ = "activity_comments"
 
@@ -421,7 +441,7 @@ class DomainEventStatus(str, Enum):
 
 
 class DomainEvent(Base):
-    """Transactional outbox — API writes here; ARQ worker drains."""
+    """Transactional outbox â API writes here; ARQ worker drains."""
 
     __tablename__ = "domain_events"
 
@@ -465,7 +485,7 @@ class IdempotencyRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-# ── M4 commerce ──────────────────────────────────────────────
+# ââ M4 commerce ââââââââââââââââââââââââââââââââââââââââââââââ
 
 
 class OrderKind(str, Enum):
@@ -700,7 +720,7 @@ class CredentialRegistration(Base):
     pass_type_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-# ���� M5 messaging / social ������������������������������������������������������������������������
+# ©¤©¤ M5 messaging / social ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 
 
 class ConversationKind(str, Enum):

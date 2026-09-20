@@ -1,3 +1,7 @@
+"""Auth service — SMS login with pluggable SmsProvider."""
+
+from __future__ import annotations
+
 import logging
 import random
 import string
@@ -8,7 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Device, RefreshToken, User, UserPreference, UserProfile, UserStatus
+from app.models import Device, RefreshToken, SmsSendLog, User, UserPreference, UserProfile, UserStatus
+from app.modules.auth.sms_provider import get_sms_provider
 from app.shared.config import settings
 from app.shared.errors import AppError
 from app.shared.redis_client import get_redis
@@ -31,12 +36,19 @@ def normalize_phone(phone: str) -> str:
     return digits
 
 
+def _dev_code_allowed(phone: str) -> bool:
+    if settings.sms_allow_dev_code:
+        return True
+    wl = {p.strip() for p in settings.sms_dev_phone_whitelist.split(",") if p.strip()}
+    return phone in wl
+
+
 class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.redis = get_redis()
 
-    async def send_sms(self, phone: str) -> dict:
+    async def send_sms(self, phone: str, *, client_ip: str | None = None, request_id: str | None = None) -> dict:
         phone = normalize_phone(phone)
         if len(phone) < 11:
             raise AppError(ErrorCodes.AUTH_INVALID, "手机号格式不正确")
@@ -50,26 +62,77 @@ class AuthService:
         if daily_count >= settings.sms_daily_limit:
             raise AppError(ErrorCodes.AUTH_RATE_LIMIT, "今日短信次数已达上限", status_code=429)
 
-        code = settings.sms_dev_code if settings.app_env == "development" else "".join(
-            random.choices(string.digits, k=6)
-        )
+        if _dev_code_allowed(phone):
+            code = settings.sms_dev_code
+        else:
+            code = "".join(random.choices(string.digits, k=6))
+
         await self.redis.setex(f"sms:code:{phone}", settings.sms_code_ttl_seconds, code)
         await self.redis.setex(interval_key, settings.sms_send_interval_seconds, "1")
         await self.redis.incr(daily_key)
         await self.redis.expire(daily_key, 86400)
 
-        # Development: log code. Production: call SMS provider.
-        logger.info("SMS code for %s => %s", mask_phone(phone), code)
-        payload = {"phone_masked": mask_phone(phone), "expires_in": settings.sms_code_ttl_seconds}
-        if settings.app_env == "development":
+        provider = get_sms_provider()
+        try:
+            result = await provider.send_code(phone, code, scene="login")
+            status = result.get("status") or "sent"
+            error_code = result.get("error_code")
+            error_message = result.get("error_message")
+            provider_msg_id = result.get("provider_msg_id")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("SMS send failed")
+            status = "failed"
+            error_code = type(exc).__name__
+            error_message = str(exc)[:500]
+            provider_msg_id = None
+            self.db.add(
+                SmsSendLog(
+                    id=uuid4(),
+                    phone_masked=mask_phone(phone),
+                    scene="login",
+                    provider=provider.name,
+                    template_code=settings.sms_template_code or None,
+                    status=status,
+                    provider_msg_id=provider_msg_id,
+                    error_code=error_code,
+                    error_message=error_message,
+                    ip=client_ip,
+                    request_id=request_id,
+                )
+            )
+            await self.db.commit()
+            raise AppError(ErrorCodes.AUTH_INVALID, "短信发送失败，请稍后重试") from exc
+
+        self.db.add(
+            SmsSendLog(
+                id=uuid4(),
+                phone_masked=mask_phone(phone),
+                scene="login",
+                provider=provider.name,
+                template_code=settings.sms_template_code or None,
+                status=status,
+                provider_msg_id=provider_msg_id,
+                error_code=error_code,
+                error_message=error_message,
+                ip=client_ip,
+                request_id=request_id,
+            )
+        )
+        await self.db.commit()
+
+        payload: dict = {
+            "phone_masked": mask_phone(phone),
+            "expires_in": settings.sms_code_ttl_seconds,
+        }
+        if _dev_code_allowed(phone):
             payload["dev_code"] = code
         return payload
 
     async def login(self, phone: str, code: str, device_id: str, platform: str) -> dict:
         phone = normalize_phone(phone)
         stored = await self.redis.get(f"sms:code:{phone}")
-        # Dev convenience: docs say code 123456 works without a prior send.
-        dev_bypass = settings.app_env == "development" and code == settings.sms_dev_code
+        # Fixed code bypass when allow_dev_code / whitelist (even without prior send).
+        dev_bypass = _dev_code_allowed(phone) and code == settings.sms_dev_code
         if stored is None and not dev_bypass:
             raise AppError(ErrorCodes.AUTH_CODE_EXPIRED, "验证码已过期，请重新获取")
         if stored is not None and stored != code and not dev_bypass:

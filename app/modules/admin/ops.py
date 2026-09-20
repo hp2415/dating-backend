@@ -327,3 +327,97 @@ async def admin_send_campaign(
     )
     await db.commit()
     return ok(data, request_id=get_request_id(request))
+
+
+# ── SMS config / logs ──────────────────────────────────────
+
+
+@router.get("/config/sms")
+async def admin_sms_config(
+    request: Request,
+    admin: AdminUser = Depends(require_perm("config:read")),
+):
+    _ = admin
+    from app.modules.auth.sms_provider import sms_status
+    from app.shared.config import settings
+
+    status = sms_status()
+    return ok(
+        {
+            **status,
+            "dev_code_configured": bool(settings.sms_dev_code),
+            "whitelist_count": len(
+                [p for p in settings.sms_dev_phone_whitelist.split(",") if p.strip()]
+            ),
+            "access_key_set": bool(settings.sms_access_key_id),
+            "note": "通道切换请改服务器 .env 后重启；密钥不回显。",
+        },
+        request_id=get_request_id(request),
+    )
+
+
+@router.post("/config/sms/test-send")
+async def admin_sms_test_send(
+    request: Request,
+    phone: str = Query(..., min_length=11, max_length=20),
+    admin: AdminUser = Depends(require_perm("config:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger a real send_sms path (log provider writes ledger)."""
+    _ = admin
+    from app.modules.auth.service import AuthService
+
+    client_ip = request.client.host if request.client else None
+    data = await AuthService(db).send_sms(
+        phone,
+        client_ip=client_ip,
+        request_id=get_request_id(request),
+    )
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/sms-logs")
+async def admin_sms_logs(
+    request: Request,
+    phone: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    admin: AdminUser = Depends(require_perm("config:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = admin
+    from sqlalchemy import func, select
+
+    from app.models import SmsSendLog
+
+    filters = []
+    if phone:
+        filters.append(SmsSendLog.phone_masked.contains(phone.replace("*", "")))
+    if status:
+        filters.append(SmsSendLog.status == status)
+    count_q = select(func.count()).select_from(SmsSendLog)
+    list_q = select(SmsSendLog).order_by(SmsSendLog.created_at.desc())
+    for f in filters:
+        count_q = count_q.where(f)
+        list_q = list_q.where(f)
+    total = int((await db.execute(count_q)).scalar_one())
+    rows = (await db.execute(list_q.limit(limit).offset(offset))).scalars().all()
+    items = [
+        {
+            "id": r.id,
+            "phone_masked": r.phone_masked,
+            "scene": r.scene,
+            "provider": r.provider,
+            "status": r.status,
+            "provider_msg_id": r.provider_msg_id,
+            "error_code": r.error_code,
+            "error_message": r.error_message,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+    return ok(
+        legacy_admin_page(items, total=total, limit=limit, offset=offset),
+        request_id=get_request_id(request),
+    )
