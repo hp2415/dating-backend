@@ -21,7 +21,8 @@ docker compose up -d --build
 - API docs: http://localhost:8000/docs
 - Health: http://localhost:8000/health
 
-拆分部署（infra 与 app 分开，云上发版只更新 app）见 [`deploy/`](./deploy/)（含 [运维速查 deploy/helper.md](./deploy/helper.md)）与仓库根目录 [`DEPLOYMENT_SETUP.md`](../DEPLOYMENT_SETUP.md)。
+操作与发版：[docs/OPS.md](./docs/OPS.md)。Agent 协作：[AGENTS.md](./AGENTS.md)。  
+云上命令速查：[deploy/helper.md](./deploy/helper.md)。多仓关系：[../DEPLOYMENT_SETUP.md](../DEPLOYMENT_SETUP.md)、[../AGENTS.md](../AGENTS.md)。
 
 Migrations run automatically on API container start (`alembic upgrade head`).
 
@@ -155,4 +156,4 @@ OSS：`media_type=post_image|post_video` 已预留 STS；客户端可先填 URL�
 - API: `/admin/v1/auth/login`, `/admin/v1/auth/me`, `/admin/v1/dashboard/summary`（真实计数）
 - 审核：`/admin/v1/reports`、`/admin/v1/media`
 - 默认账号：`admin` / `Admin@123456`（启动自动种子，无短信）
-- 前端：`../dating-admin-web`，Compose 服务名 `admin`，端口 `5173`，页面「内容审核」
+- 前端：本机 `../dating-web`（服务器目录名 `dating-admin-web`），Compose 服务名 `admin`，页面「内容审核」

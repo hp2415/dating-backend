@@ -151,7 +151,7 @@ services:
 
   admin:
     build:
-      context: ../dating-admin-web
+      context: ../dating-web
       dockerfile: Dockerfile
     container_name: dating-admin
     restart: unless-stopped
@@ -160,7 +160,7 @@ services:
     ports:
       - "${ADMIN_PORT:-5173}:5173"
     volumes:
-      - ../dating-admin-web:/app
+      - ../dating-web:/app
       - admin_node_modules:/app/node_modules
     depends_on:
       api:

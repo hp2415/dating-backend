@@ -24,15 +24,20 @@ export COMPOSE="docker compose -p dating-app -f deploy/compose.app.yml --env-fil
 
 ## 1. 日常更新代码（最常用）
 
+两个 git 仓库都要拉。运营后台远程是 `hp2415/dating-web`，服务器目录名仍为 `dating-admin-web`。
+
 ```bash
 cd /work_place/dating-backend
-git pull
+git pull origin master
 
-# 若改了运营后台且未进 git，本机执行：
-# scp -r dating-admin-web/* root@<IP>:/work_place/dating-admin-web/
+cd /work_place/dating-admin-web
+git pull origin main
 
+cd /work_place/dating-backend
 docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d --build
 ```
+
+**不要**再用 scp 覆盖前端。完整说明见 [docs/OPS.md](../docs/OPS.md)。
 
 等待约 30～60 秒（构建 + Alembic + 健康检查），然后验收：
 
@@ -284,6 +289,7 @@ bash deploy/scripts/probe-infra.sh
 
 ## 13. 相关文档
 
-- [DEPLOYMENT_SETUP.md](../../DEPLOYMENT_SETUP.md) — 完整搭建方案
+- [docs/OPS.md](../docs/OPS.md) — 本机 + git pull 发版
+- [DEPLOYMENT_SETUP.md](../../DEPLOYMENT_SETUP.md) — 多仓部署关系
 - [deploy/.env.example](./.env.example) — 环境变量模板
 - [README.md](../README.md) — 后端 API 说明
