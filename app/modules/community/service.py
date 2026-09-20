@@ -8,9 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     AuditStatus,
+    CommunityBookmark,
     CommunityComment,
     CommunityLike,
     CommunityPost,
+    CommunityRepost,
     MediaAsset,
     PostStatus,
     User,
@@ -35,6 +37,14 @@ class CreatePostRequest(BaseModel):
 
 class CreateCommentRequest(BaseModel):
     content: str = Field(min_length=1, max_length=1000)
+
+
+class RepostRequest(BaseModel):
+    quote_text: str | None = Field(default=None, max_length=500)
+
+
+class BookmarkRequest(BaseModel):
+    collection: str = Field(default="default", max_length=64)
 
 
 class CommunityService:
@@ -232,6 +242,7 @@ class CommunityService:
 
     async def _post_brief(self, post: CommunityPost, viewer_id: UUID) -> dict:
         liked = await self._liked(post.id, viewer_id)
+        bookmarked = await self._bookmarked(post.id, viewer_id)
         author = await self._author_brief(post.author_id)
         return {
             "id": post.id,
@@ -241,9 +252,143 @@ class CommunityService:
             "status": post.status,
             "like_count": post.like_count,
             "comment_count": post.comment_count,
+            "bookmark_count": int(getattr(post, "bookmark_count", 0) or 0),
+            "repost_count": int(getattr(post, "repost_count", 0) or 0),
             "liked": liked,
+            "bookmarked": bookmarked,
             "created_at": post.created_at.isoformat() if post.created_at else "",
         }
+
+    async def _bookmarked(self, post_id: UUID, user_id: UUID) -> bool:
+        result = await self.db.execute(
+            select(CommunityBookmark.id)
+            .where(CommunityBookmark.post_id == post_id, CommunityBookmark.user_id == user_id)
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def bookmark(self, user: User, post_id: UUID, collection: str = "default") -> dict:
+        post = await self._get_published_post(post_id)
+        existing = await self.db.execute(
+            select(CommunityBookmark).where(
+                CommunityBookmark.post_id == post_id,
+                CommunityBookmark.user_id == user.id,
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row is not None:
+            row.collection_name = (collection or "default")[:64]
+            await self.db.commit()
+            return {
+                "bookmarked": True,
+                "bookmark_count": post.bookmark_count,
+                "collection": row.collection_name,
+            }
+        self.db.add(
+            CommunityBookmark(
+                id=uuid4(),
+                post_id=post_id,
+                user_id=user.id,
+                collection_name=(collection or "default")[:64],
+            )
+        )
+        post.bookmark_count = int(post.bookmark_count or 0) + 1
+        await self.db.commit()
+        return {
+            "bookmarked": True,
+            "bookmark_count": post.bookmark_count,
+            "collection": (collection or "default")[:64],
+        }
+
+    async def unbookmark(self, user: User, post_id: UUID) -> dict:
+        post = await self._get_published_post(post_id)
+        result = await self.db.execute(
+            select(CommunityBookmark).where(
+                CommunityBookmark.post_id == post_id,
+                CommunityBookmark.user_id == user.id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is not None:
+            await self.db.delete(row)
+            post.bookmark_count = max(int(post.bookmark_count or 0) - 1, 0)
+            await self.db.commit()
+        return {"bookmarked": False, "bookmark_count": post.bookmark_count}
+
+    async def repost(self, user: User, post_id: UUID, quote_text: str | None = None) -> dict:
+        post = await self._get_published_post(post_id)
+        existing = await self.db.execute(
+            select(CommunityRepost).where(
+                CommunityRepost.post_id == post_id,
+                CommunityRepost.user_id == user.id,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return {"reposted": True, "repost_count": post.repost_count}
+        self.db.add(
+            CommunityRepost(
+                id=uuid4(),
+                post_id=post_id,
+                user_id=user.id,
+                quote_text=(quote_text or None),
+            )
+        )
+        post.repost_count = int(post.repost_count or 0) + 1
+        await self.db.commit()
+        return {"reposted": True, "repost_count": post.repost_count}
+
+    async def list_library(
+        self,
+        user: User,
+        *,
+        kind: str,
+        limit: int,
+        offset: int,
+    ) -> dict:
+        """kind: bookmarks | liked | posts | reposts"""
+        if kind == "posts":
+            return await self.list_mine(user, limit, offset)
+        if kind == "liked":
+            result = await self.db.execute(
+                select(CommunityPost)
+                .join(CommunityLike, CommunityLike.post_id == CommunityPost.id)
+                .where(
+                    CommunityLike.user_id == user.id,
+                    CommunityPost.status == PostStatus.PUBLISHED.value,
+                )
+                .order_by(CommunityLike.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        elif kind == "bookmarks":
+            result = await self.db.execute(
+                select(CommunityPost)
+                .join(CommunityBookmark, CommunityBookmark.post_id == CommunityPost.id)
+                .where(
+                    CommunityBookmark.user_id == user.id,
+                    CommunityPost.status == PostStatus.PUBLISHED.value,
+                )
+                .order_by(CommunityBookmark.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        elif kind == "reposts":
+            result = await self.db.execute(
+                select(CommunityPost)
+                .join(CommunityRepost, CommunityRepost.post_id == CommunityPost.id)
+                .where(
+                    CommunityRepost.user_id == user.id,
+                    CommunityPost.status == PostStatus.PUBLISHED.value,
+                )
+                .order_by(CommunityRepost.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        else:
+            raise AppError(ErrorCodes.COMMUNITY_INVALID, f"无效 kind: {kind}")
+        posts = list(result.scalars().all())
+        items = [await self._post_brief(p, viewer_id=user.id) for p in posts]
+        return {"items": items, "limit": limit, "offset": offset, "kind": kind}
 
     async def _comment_brief(self, comment: CommunityComment) -> dict:
         author = await self._author_brief(comment.author_id)

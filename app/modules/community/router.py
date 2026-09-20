@@ -5,14 +5,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
 from app.modules.community.service import (
+    BookmarkRequest,
     CommunityService,
     CreateCommentRequest,
     CreatePostRequest,
+    RepostRequest,
 )
 from app.shared.deps import get_current_user, get_db, get_request_id
 from app.shared.response import ok
 
 router = APIRouter(prefix="/api/v1/community", tags=["community"])
+me_router = APIRouter(prefix="/api/v1", tags=["community"])
 
 
 @router.post("/posts")
@@ -84,6 +87,43 @@ async def unlike_post(
     return ok(data, request_id=get_request_id(request))
 
 
+@router.post("/posts/{post_id}/bookmark")
+async def bookmark_post(
+    post_id: UUID,
+    request: Request,
+    body: BookmarkRequest | None = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    collection = (body.collection if body else "default") or "default"
+    data = await CommunityService(db).bookmark(user, post_id, collection=collection)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.delete("/posts/{post_id}/bookmark")
+async def unbookmark_post(
+    post_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await CommunityService(db).unbookmark(user, post_id)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/posts/{post_id}/repost")
+async def repost_post(
+    post_id: UUID,
+    request: Request,
+    body: RepostRequest | None = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    quote = body.quote_text if body else None
+    data = await CommunityService(db).repost(user, post_id, quote_text=quote)
+    return ok(data, request_id=get_request_id(request))
+
+
 @router.get("/posts/{post_id}/comments")
 async def list_comments(
     post_id: UUID,
@@ -106,4 +146,52 @@ async def add_comment(
     db: AsyncSession = Depends(get_db),
 ):
     data = await CommunityService(db).add_comment(user, post_id, body)
+    return ok(data, request_id=get_request_id(request))
+
+
+@me_router.get("/me/community/bookmarks")
+async def me_bookmarks(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await CommunityService(db).list_library(user, kind="bookmarks", limit=limit, offset=offset)
+    return ok(data, request_id=get_request_id(request))
+
+
+@me_router.get("/me/community/liked")
+async def me_liked(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await CommunityService(db).list_library(user, kind="liked", limit=limit, offset=offset)
+    return ok(data, request_id=get_request_id(request))
+
+
+@me_router.get("/me/community/posts")
+async def me_posts(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await CommunityService(db).list_library(user, kind="posts", limit=limit, offset=offset)
+    return ok(data, request_id=get_request_id(request))
+
+
+@me_router.get("/me/community/reposts")
+async def me_reposts(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await CommunityService(db).list_library(user, kind="reposts", limit=limit, offset=offset)
     return ok(data, request_id=get_request_id(request))

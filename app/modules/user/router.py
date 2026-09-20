@@ -1,8 +1,15 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
-from app.modules.user.schemas import DeleteAccountRequest, PreferenceUpdateRequest, ProfileUpdateRequest
+from app.modules.user.schemas import (
+    DeleteAccountRequest,
+    PreferenceUpdateRequest,
+    ProfileUpdateRequest,
+    SettingsUpdateRequest,
+)
 from app.modules.user.service import UserService
 from app.shared.deps import get_current_user, get_db, get_request_id
 from app.shared.response import ok
@@ -39,6 +46,40 @@ async def update_preferences(
     db: AsyncSession = Depends(get_db),
 ):
     data = await UserService(db).update_preference(user, body.model_dump(exclude_unset=True))
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/me/settings")
+async def get_settings(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await UserService(db).get_settings(user)
+    await db.commit()
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.put("/me/settings")
+async def update_settings(
+    body: SettingsUpdateRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await UserService(db).update_settings(user, body.model_dump(exclude_unset=True))
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/users/{user_id}")
+async def get_public_user(
+    user_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await UserService(db).get_public_profile(user, user_id)
+    await db.commit()
     return ok(data, request_id=get_request_id(request))
 
 

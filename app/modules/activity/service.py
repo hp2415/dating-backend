@@ -10,10 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Activity,
     ActivityComment,
+    ActivityDetail,
+    ActivityFavorite,
     ActivityLike,
     ActivityParticipant,
     ActivityStatus,
     AuditStatus,
+    FeeType,
     MediaAsset,
     ParticipantRole,
     ParticipantStatus,
@@ -45,10 +48,59 @@ class CreateActivityRequest(BaseModel):
     end_at: datetime | None = None
     capacity: int = Field(default=10, ge=2, le=200)
     media: list[MediaItemIn] = Field(default_factory=list, max_length=9)
+    fee_type: str = Field(default=FeeType.FREE.value, max_length=16)
+    fee_cents: int = Field(default=0, ge=0, le=10_000_000)
+    fee_note: str | None = Field(default=None, max_length=120)
+
+
+class UpdateActivityRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=4000)
+    category: str | None = Field(default=None, max_length=32)
+    city: str | None = Field(default=None, max_length=64)
+    address: str | None = Field(default=None, max_length=256)
+    lat: str | None = Field(default=None, max_length=32)
+    lng: str | None = Field(default=None, max_length=32)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    capacity: int | None = Field(default=None, ge=2, le=200)
+    media: list[MediaItemIn] | None = Field(default=None, max_length=9)
+    fee_type: str | None = Field(default=None, max_length=16)
+    fee_cents: int | None = Field(default=None, ge=0, le=10_000_000)
+    fee_note: str | None = Field(default=None, max_length=120)
+
+
+class CancelActivityRequest(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
+class ActivityDetailsRequest(BaseModel):
+    timeline: list | None = None
+    gear: list | None = None
+    fee_included: list | None = None
+    fee_excluded: list | None = None
+    refund_notes: list | None = None
+    prep_notes: list | None = None
+    registration_notes: list | None = None
+    host_note: str | None = Field(default=None, max_length=4000)
+    gallery: list | None = None
 
 
 class CreateCommentRequest(BaseModel):
     content: str = Field(min_length=1, max_length=1000)
+
+
+FEE_TYPES = {e.value for e in FeeType}
+
+
+def _normalize_fee(fee_type: str | None, fee_cents: int | None, fee_note: str | None) -> tuple[str, int, str | None]:
+    ft = (fee_type or FeeType.FREE.value).strip()
+    if ft not in FEE_TYPES:
+        ft = FeeType.FREE.value
+    cents = int(fee_cents or 0)
+    if ft == FeeType.FREE.value:
+        cents = 0
+    return ft, cents, (fee_note.strip() if fee_note else None)
 
 
 class ActivityService:
@@ -62,6 +114,7 @@ class ActivityService:
             raise AppError(ErrorCodes.USER_NOT_COMPLETED, "请先完善资料")
         category = body.category if body.category in CATEGORIES else "other"
         media = await self._normalize_media(user.id, body.media)
+        fee_type, fee_cents, fee_note = _normalize_fee(body.fee_type, body.fee_cents, body.fee_note)
 
         activity = Activity(
             id=uuid4(),
@@ -78,6 +131,9 @@ class ActivityService:
             capacity=body.capacity,
             join_count=1,
             media=media,
+            fee_type=fee_type,
+            fee_cents=fee_cents,
+            fee_note=fee_note,
             status=ActivityStatus.PENDING.value,
         )
         self.db.add(activity)
@@ -347,6 +403,175 @@ class ActivityService:
         )
         return result.scalar_one_or_none() is not None
 
+    async def _favorited(self, activity_id: UUID, user_id: UUID) -> bool:
+        result = await self.db.execute(
+            select(ActivityFavorite.id)
+            .where(ActivityFavorite.activity_id == activity_id, ActivityFavorite.user_id == user_id)
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def update(self, user: User, activity_id: UUID, body: UpdateActivityRequest) -> dict:
+        activity = await self.db.get(Activity, activity_id)
+        if activity is None or activity.status == ActivityStatus.CANCELLED.value:
+            raise AppError(ErrorCodes.ACTIVITY_NOT_FOUND, "活动不存在", status_code=404)
+        if activity.host_id != user.id:
+            raise AppError(ErrorCodes.ACTIVITY_FORBIDDEN, "仅主办可编辑", status_code=403)
+        payload = body.model_dump(exclude_unset=True)
+        if "category" in payload and payload["category"] is not None:
+            payload["category"] = payload["category"] if payload["category"] in CATEGORIES else "other"
+        if "media" in payload and payload["media"] is not None:
+            payload["media"] = await self._normalize_media(user.id, body.media or [])
+        if any(k in payload for k in ("fee_type", "fee_cents", "fee_note")):
+            ft, cents, note = _normalize_fee(
+                payload.get("fee_type", activity.fee_type),
+                payload.get("fee_cents", activity.fee_cents),
+                payload.get("fee_note", activity.fee_note),
+            )
+            payload["fee_type"] = ft
+            payload["fee_cents"] = cents
+            payload["fee_note"] = note
+        for key, value in payload.items():
+            if value is not None or key in ("fee_note", "description", "city", "address", "lat", "lng"):
+                setattr(activity, key, value)
+        # Host edits on published activity stay published; pending stays pending.
+        await self.db.commit()
+        await self.db.refresh(activity)
+        return await self._brief(activity, viewer_id=user.id, include_members=False)
+
+    async def cancel(self, user: User, activity_id: UUID, body: CancelActivityRequest) -> dict:
+        from datetime import timezone
+
+        activity = await self.db.get(Activity, activity_id)
+        if activity is None:
+            raise AppError(ErrorCodes.ACTIVITY_NOT_FOUND, "活动不存在", status_code=404)
+        if activity.host_id != user.id:
+            raise AppError(ErrorCodes.ACTIVITY_FORBIDDEN, "仅主办可取消", status_code=403)
+        if activity.status == ActivityStatus.CANCELLED.value:
+            return await self._brief(activity, viewer_id=user.id, include_members=False)
+        activity.status = ActivityStatus.CANCELLED.value
+        activity.cancel_reason = (body.reason or "").strip() or None
+        activity.cancelled_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(activity)
+        return await self._brief(activity, viewer_id=user.id, include_members=False)
+
+    async def get_details(self, user: User, activity_id: UUID) -> dict:
+        await self._get_visible(activity_id, user.id)
+        detail = await self.db.get(ActivityDetail, activity_id)
+        return self._details_brief(activity_id, detail)
+
+    async def upsert_details(self, user: User, activity_id: UUID, body: ActivityDetailsRequest) -> dict:
+        activity = await self.db.get(Activity, activity_id)
+        if activity is None or activity.status == ActivityStatus.CANCELLED.value:
+            raise AppError(ErrorCodes.ACTIVITY_NOT_FOUND, "活动不存在", status_code=404)
+        if activity.host_id != user.id:
+            raise AppError(ErrorCodes.ACTIVITY_FORBIDDEN, "仅主办可编辑详情", status_code=403)
+        detail = await self.db.get(ActivityDetail, activity_id)
+        if detail is None:
+            detail = ActivityDetail(activity_id=activity_id)
+            self.db.add(detail)
+        payload = body.model_dump(exclude_unset=True)
+        for key, value in payload.items():
+            if value is not None or key == "host_note":
+                setattr(detail, key, value if value is not None else ([] if key != "host_note" else None))
+        await self.db.commit()
+        await self.db.refresh(detail)
+        return self._details_brief(activity_id, detail)
+
+    def _details_brief(self, activity_id: UUID, detail: ActivityDetail | None) -> dict:
+        if detail is None:
+            return {
+                "activity_id": activity_id,
+                "timeline": [],
+                "gear": [],
+                "fee_included": [],
+                "fee_excluded": [],
+                "refund_notes": [],
+                "prep_notes": [],
+                "registration_notes": [],
+                "host_note": None,
+                "gallery": [],
+            }
+        return {
+            "activity_id": activity_id,
+            "timeline": detail.timeline or [],
+            "gear": detail.gear or [],
+            "fee_included": detail.fee_included or [],
+            "fee_excluded": detail.fee_excluded or [],
+            "refund_notes": detail.refund_notes or [],
+            "prep_notes": detail.prep_notes or [],
+            "registration_notes": detail.registration_notes or [],
+            "host_note": detail.host_note,
+            "gallery": detail.gallery or [],
+            "updated_at": detail.updated_at.isoformat() if detail.updated_at else None,
+        }
+
+    async def favorite(self, user: User, activity_id: UUID) -> dict:
+        activity = await self._get_published(activity_id)
+        existing = await self.db.execute(
+            select(ActivityFavorite).where(
+                ActivityFavorite.activity_id == activity_id,
+                ActivityFavorite.user_id == user.id,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return {"favorited": True, "favorite_count": activity.favorite_count}
+        self.db.add(ActivityFavorite(id=uuid4(), activity_id=activity_id, user_id=user.id))
+        activity.favorite_count = int(activity.favorite_count or 0) + 1
+        await self.db.commit()
+        return {"favorited": True, "favorite_count": activity.favorite_count}
+
+    async def unfavorite(self, user: User, activity_id: UUID) -> dict:
+        activity = await self._get_published(activity_id)
+        result = await self.db.execute(
+            select(ActivityFavorite).where(
+                ActivityFavorite.activity_id == activity_id,
+                ActivityFavorite.user_id == user.id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is not None:
+            await self.db.delete(row)
+            activity.favorite_count = max(int(activity.favorite_count or 0) - 1, 0)
+            await self.db.commit()
+        return {"favorited": False, "favorite_count": activity.favorite_count}
+
+    async def search(
+        self,
+        user: User,
+        *,
+        q: str | None,
+        city: str | None,
+        category: str | None,
+        fee_type: str | None,
+        free_only: bool,
+        limit: int,
+        offset: int,
+    ) -> dict:
+        from sqlalchemy import or_
+
+        stmt = (
+            select(Activity)
+            .where(Activity.status == ActivityStatus.PUBLISHED.value)
+            .order_by(Activity.start_at.asc().nullslast(), Activity.created_at.desc())
+        )
+        if q:
+            like = f"%{q.strip()}%"
+            stmt = stmt.where(or_(Activity.title.ilike(like), Activity.description.ilike(like)))
+        if city:
+            stmt = stmt.where(Activity.city == city)
+        if category:
+            stmt = stmt.where(Activity.category == category)
+        if free_only:
+            stmt = stmt.where(Activity.fee_type == FeeType.FREE.value)
+        elif fee_type and fee_type in FEE_TYPES:
+            stmt = stmt.where(Activity.fee_type == fee_type)
+        result = await self.db.execute(stmt.offset(offset).limit(limit))
+        rows = list(result.scalars().all())
+        items = [await self._brief(a, viewer_id=user.id, include_members=False) for a in rows]
+        return {"items": items, "limit": limit, "offset": offset}
+
     async def _joined(self, activity_id: UUID, user_id: UUID) -> bool:
         result = await self.db.execute(
             select(ActivityParticipant.id)
@@ -391,6 +616,7 @@ class ActivityService:
         host = await self._author_brief(activity.host_id)
         liked = await self._liked(activity.id, viewer_id)
         joined = await self._joined(activity.id, viewer_id)
+        favorited = await self._favorited(activity.id, viewer_id)
         data = {
             "id": activity.id,
             "host": host,
@@ -406,12 +632,19 @@ class ActivityService:
             "capacity": activity.capacity,
             "join_count": activity.join_count,
             "media": activity.media or [],
+            "fee_type": getattr(activity, "fee_type", None) or FeeType.FREE.value,
+            "fee_cents": int(getattr(activity, "fee_cents", 0) or 0),
+            "fee_note": getattr(activity, "fee_note", None),
             "status": activity.status,
             "like_count": activity.like_count,
             "comment_count": activity.comment_count,
+            "favorite_count": int(getattr(activity, "favorite_count", 0) or 0),
             "liked": liked,
             "joined": joined,
+            "favorited": favorited,
             "is_host": activity.host_id == viewer_id,
+            "cancel_reason": getattr(activity, "cancel_reason", None),
+            "cancelled_at": activity.cancelled_at.isoformat() if getattr(activity, "cancelled_at", None) else None,
             "created_at": activity.created_at.isoformat() if activity.created_at else "",
         }
         if include_members:

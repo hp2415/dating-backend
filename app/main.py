@@ -15,6 +15,7 @@ from app.modules.admin.seed import ensure_default_admin
 from app.modules.auth.router import router as auth_router
 from app.modules.auth.sms_provider import sms_status
 from app.modules.chat_gate.router import router as chat_router
+from app.modules.community.router import me_router as community_me_router
 from app.modules.community.router import router as community_router
 from app.modules.discover.router import router as discover_router
 from app.modules.discover.seed import ensure_demo_users
@@ -71,7 +72,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.9.0",
+    version="0.9.1",
     default_response_class=ORJSONResponse,
     lifespan=lifespan,
 )
@@ -95,6 +96,7 @@ app.include_router(safety_router)
 app.include_router(recommend_router)
 app.include_router(activity_router)
 app.include_router(community_router)
+app.include_router(community_me_router)
 app.include_router(chat_router)
 app.include_router(messaging_router)
 app.include_router(companion_router)
@@ -186,7 +188,7 @@ async def health(request: Request):
         {
             "app": settings.app_name,
             "env": settings.app_env,
-            "version": "0.9.0",
+            "version": "0.9.1",
             "postgres": {"ok": pg_ok, "error": pg_error, "postgis": postgis_ok},
             "redis": {"ok": redis_ok, "error": redis_error},
             "worker": {"ok": worker_ok},

@@ -133,7 +133,7 @@ class MediaAsset(Base):
 
 
 class SmsSendLog(Base):
-    """SMS send ledger — required before wiring a real provider."""
+    """SMS send ledger â required before wiring a real provider."""
 
     __tablename__ = "sms_send_logs"
 
@@ -301,11 +301,13 @@ class CommunityPost(Base):
     id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     author_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    # [{type: image|video, url, media_id?}] â OSS upload reserved via media_id / STS post_* types
+    # [{type: image|video, url, media_id?}] Ã¢ÂÂ OSS upload reserved via media_id / STS post_* types
     media: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default=PostStatus.PENDING.value, nullable=False, index=True)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     comment_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    bookmark_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    repost_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     reviewed_by: Mapped[Optional[PyUUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"), nullable=True
     )
@@ -338,12 +340,40 @@ class CommunityLike(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class CommunityBookmark(Base):
+    __tablename__ = "community_bookmarks"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_community_bookmark"),)
+
+    id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    post_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("community_posts.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    collection_name: Mapped[str] = mapped_column(String(64), default="default", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CommunityRepost(Base):
+    __tablename__ = "community_reposts"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_community_repost"),)
+
+    id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    post_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("community_posts.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    quote_text: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ActivityStatus(str, Enum):
     PENDING = "pending"
     PUBLISHED = "published"
     REJECTED = "rejected"
     CLOSED = "closed"
     CANCELLED = "cancelled"
+
+
+class FeeType(str, Enum):
+    FREE = "free"
+    ONLINE_PAY = "online_pay"
+    AA_OFFLINE = "aa_offline"
 
 
 class ParticipantRole(str, Enum):
@@ -358,7 +388,7 @@ class ParticipantStatus(str, Enum):
 
 
 class Activity(Base):
-    """æ¾æ­å­æ´»å¨ï¼è¯¦æé¡µèåæ é¢/å¾ç/å°å/æ¶é´/æ¥åã"""
+    """找搭子活动：详情页聚合标题/图片/地址/时间/报名。"""
 
     __tablename__ = "activities"
 
@@ -378,15 +408,43 @@ class Activity(Base):
     join_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     # [{type: image|video, url, media_id?}]
     media: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    fee_type: Mapped[str] = mapped_column(String(16), default=FeeType.FREE.value, nullable=False)
+    fee_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    fee_note: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    cancel_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=ActivityStatus.PENDING.value, nullable=False, index=True)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     comment_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    favorite_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     reviewed_by: Mapped[Optional[PyUUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"), nullable=True
     )
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     admin_note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ActivityDetail(Base):
+    """Host-editable detail blocks (timeline / gear / fee notes / gallery)."""
+
+    __tablename__ = "activity_details"
+
+    activity_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("activities.id", ondelete="CASCADE"), primary_key=True
+    )
+    timeline: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    gear: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    fee_included: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    fee_excluded: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    refund_notes: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    prep_notes: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    registration_notes: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    host_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    gallery: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -407,7 +465,7 @@ class ActivityParticipant(Base):
 
 
 class ActivityComment(Base):
-    """æ´»å¨å¨æè¯è®ºï¼åç¤¾åºå¸å­äºå¨å¹¶å¥æ´»å¨ï¼ã"""
+    """活动动态评论（原社区帖子互动并入活动）。"""
 
     __tablename__ = "activity_comments"
 
@@ -433,6 +491,41 @@ class ActivityLike(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ActivityFavorite(Base):
+    __tablename__ = "activity_favorites"
+    __table_args__ = (UniqueConstraint("activity_id", "user_id", name="uq_activity_favorite"),)
+
+    id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    activity_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("activities.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserSettings(Base):
+    """Privacy / notification / youth mode — client previously kept these in DataStore."""
+
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    show_distance: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    show_online: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    allow_invite: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_activity: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_buddy: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_message: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_community: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    youth_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    guidelines_ack_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    legal_consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class DomainEventStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -441,7 +534,7 @@ class DomainEventStatus(str, Enum):
 
 
 class DomainEvent(Base):
-    """Transactional outbox â API writes here; ARQ worker drains."""
+    """Transactional outbox Ã¢ÂÂ API writes here; ARQ worker drains."""
 
     __tablename__ = "domain_events"
 
@@ -485,7 +578,7 @@ class IdempotencyRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-# ââ M4 commerce ââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂ M4 commerce Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 
 class OrderKind(str, Enum):
@@ -720,7 +813,7 @@ class CredentialRegistration(Base):
     pass_type_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-# ©¤©¤ M5 messaging / social ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+# Â©Â¤Â©Â¤ M5 messaging / social Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤Â©Â¤
 
 
 class ConversationKind(str, Enum):

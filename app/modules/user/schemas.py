@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
@@ -20,6 +20,19 @@ class PreferenceUpdateRequest(BaseModel):
     age_min: Optional[int] = Field(default=None, ge=18, le=80)
     age_max: Optional[int] = Field(default=None, ge=18, le=80)
     max_distance_km: Optional[int] = Field(default=None, ge=1, le=500)
+
+
+class SettingsUpdateRequest(BaseModel):
+    show_distance: Optional[bool] = None
+    show_online: Optional[bool] = None
+    allow_invite: Optional[bool] = None
+    notify_activity: Optional[bool] = None
+    notify_buddy: Optional[bool] = None
+    notify_message: Optional[bool] = None
+    notify_community: Optional[bool] = None
+    youth_mode: Optional[bool] = None
+    guidelines_ack_at: Optional[datetime] = None
+    legal_consent_at: Optional[datetime] = None
 
 
 class DeleteAccountRequest(BaseModel):

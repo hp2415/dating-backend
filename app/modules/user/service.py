@@ -1,10 +1,19 @@
 from datetime import date, datetime, timezone
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import AuditStatus, MediaAsset, User, UserPreference, UserProfile, UserStatus
+from app.models import (
+    AuditStatus,
+    MediaAsset,
+    User,
+    UserPreference,
+    UserProfile,
+    UserSettings,
+    UserStatus,
+)
 from app.modules.auth.service import mask_phone
 from app.shared.config import settings
 from app.shared.errors import AppError
@@ -37,6 +46,19 @@ def calc_completion(profile: UserProfile) -> int:
     return min(score, 100)
 
 
+_SETTINGS_BOOL_KEYS = (
+    "show_distance",
+    "show_online",
+    "allow_invite",
+    "notify_activity",
+    "notify_buddy",
+    "notify_message",
+    "notify_community",
+    "youth_mode",
+)
+_SETTINGS_DT_KEYS = ("guidelines_ack_at", "legal_consent_at")
+
+
 class UserService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -45,7 +67,7 @@ class UserService:
         avatar_url = None
         if user.profile and user.profile.avatar_media_id:
             media = await self.db.get(MediaAsset, user.profile.avatar_media_id)
-            if media and media.audit_status != AuditStatus.REJECTED.value:
+            if media and media.audit_status != AuditStatus.REJECTED.value and media.deleted_at is None:
                 avatar_url = media.url
 
         profile = None
@@ -71,11 +93,94 @@ class UserService:
         return {
             "id": user.id,
             "phone_masked": mask_phone(user.phone),
+            "public_uid": user.public_uid,
             "profile_completed": user.profile_completed,
             "discoverable": user.discoverable,
             "status": user.status,
             "profile": profile,
             "preference": preference,
+        }
+
+    async def get_public_profile(self, viewer: User, user_id: UUID) -> dict:
+        _ = viewer
+        result = await self.db.execute(
+            select(User).where(User.id == user_id).options(selectinload(User.profile))
+        )
+        user = result.scalar_one_or_none()
+        if user is None or user.status == UserStatus.DELETED.value:
+            raise AppError(ErrorCodes.USER_NOT_FOUND, "用户不存在", status_code=404)
+
+        avatar_url = None
+        display_name = None
+        city = None
+        bio = None
+        tags: list[str] = []
+        if user.profile:
+            display_name = user.profile.display_name
+            city = user.profile.city
+            bio = user.profile.bio
+            tags = user.profile.tags or []
+            if user.profile.avatar_media_id:
+                media = await self.db.get(MediaAsset, user.profile.avatar_media_id)
+                if (
+                    media
+                    and media.audit_status == AuditStatus.APPROVED.value
+                    and media.deleted_at is None
+                ):
+                    avatar_url = media.url
+
+        from app.modules.trust.service import TrustService
+
+        trust = await TrustService(self.db).get_public_trust(user_id)
+        return {
+            "id": user.id,
+            "public_uid": user.public_uid,
+            "display_name": display_name or "用户",
+            "city": city,
+            "bio": bio,
+            "tags": tags,
+            "avatar_url": avatar_url,
+            "trust": trust,
+        }
+
+    async def get_settings(self, user: User) -> dict:
+        row = await self._ensure_settings(user.id)
+        return self._settings_brief(row)
+
+    async def update_settings(self, user: User, payload: dict) -> dict:
+        row = await self._ensure_settings(user.id)
+        for key in _SETTINGS_BOOL_KEYS:
+            if key in payload and payload[key] is not None:
+                setattr(row, key, bool(payload[key]))
+        for key in _SETTINGS_DT_KEYS:
+            if key in payload and payload[key] is not None:
+                setattr(row, key, payload[key])
+        row.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(row)
+        return self._settings_brief(row)
+
+    async def _ensure_settings(self, user_id: UUID) -> UserSettings:
+        row = await self.db.get(UserSettings, user_id)
+        if row is None:
+            row = UserSettings(user_id=user_id)
+            self.db.add(row)
+            await self.db.flush()
+        return row
+
+    def _settings_brief(self, row: UserSettings) -> dict:
+        return {
+            "show_distance": row.show_distance,
+            "show_online": row.show_online,
+            "allow_invite": row.allow_invite,
+            "notify_activity": row.notify_activity,
+            "notify_buddy": row.notify_buddy,
+            "notify_message": row.notify_message,
+            "notify_community": row.notify_community,
+            "youth_mode": row.youth_mode,
+            "guidelines_ack_at": row.guidelines_ack_at.isoformat() if row.guidelines_ack_at else None,
+            "legal_consent_at": row.legal_consent_at.isoformat() if row.legal_consent_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
 
     async def update_profile(self, user: User, payload: dict) -> dict:
@@ -103,20 +208,17 @@ class UserService:
 
         profile.completion_score = calc_completion(profile)
 
-        # Mark profile completed when essential fields exist
         essential_ok = bool(
             profile.display_name and profile.birthday and profile.gender != "unknown"
         )
         age = calc_age(profile.birthday)
         underage = age is not None and age < settings.min_age
         user.profile_completed = essential_ok and not underage
-        # Discoverable only when completed and avatar not rejected (pending allowed for MVP soft launch)
         user.discoverable = user.profile_completed and not underage
         user.updated_at = datetime.now(timezone.utc)
 
         await self.db.commit()
         await self.db.refresh(user)
-        # reload relations
         result = await self.db.execute(
             select(User)
             .where(User.id == user.id)
