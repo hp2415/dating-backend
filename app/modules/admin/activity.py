@@ -14,7 +14,9 @@ from app.models import (
     AdminUser,
     UserProfile,
 )
+from app.modules.events.service import DomainEventName, DomainEventService
 from app.shared.errors import AppError
+from app.shared.pagination import legacy_admin_page
 from app.shared.response import ErrorCodes
 
 
@@ -39,7 +41,7 @@ class ActivityAdminService:
         if status != "all":
             count_stmt = count_stmt.where(Activity.status == status)
         total = int(await self.db.scalar(count_stmt) or 0)
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
+        return legacy_admin_page(items, total=total, limit=limit, offset=offset)
 
     async def review(self, admin: AdminUser, activity_id: UUID, body: ReviewActivityRequest) -> dict:
         if body.action not in ("approve", "reject"):
@@ -65,6 +67,12 @@ class ActivityAdminService:
                 target_id=str(activity.id),
                 detail={"action": body.action, "admin_note": body.admin_note},
             )
+        )
+        await DomainEventService(self.db).enqueue(
+            name=DomainEventName.ACTIVITY_REVIEWED,
+            aggregate_kind="activity",
+            aggregate_id=activity.id,
+            payload={"action": body.action, "status": activity.status, "admin_id": str(admin.id)},
         )
         await self.db.commit()
         return await self._brief(activity)

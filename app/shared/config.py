@@ -45,8 +45,23 @@ class Settings(BaseSettings):
     seed_demo_users: bool = True
     seed_demo_user_count: int = 40
 
-    # IM provider placeholder (M3: rongcloud / netease / easemob)
+    # IM provider (noop stub; swap to rongcloud / netease / tencent without route changes)
     im_provider: str = "noop"
+
+    # M3 foundation
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0
+    rate_limit_per_minute: int = 300
+    idempotency_ttl_seconds: int = 86400
+    domain_event_batch_size: int = 50
+    worker_queues: str = "default,notify,moderation,stats"
+
+    # M4 commerce (stub payments by default — real channels later)
+    payment_provider: str = "stub"
+    payment_stub_auto_complete: bool = True
+    payment_refund_to_wallet: bool = True
+    order_expire_minutes: int = 15
+    wallet_welcome_cents: int = 50_000
 
 
 settings = Settings()

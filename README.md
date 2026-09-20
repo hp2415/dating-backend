@@ -19,7 +19,13 @@ docker compose up -d --build
 ```
 
 - API docs: http://localhost:8000/docs
-- Health: http://localhost:8000/health
+- Health: http://localhost:8000/health （含 `worker` / `postgis` / `payment` / `im` 状态）
+
+M3 冒烟：`pwsh ./scripts/smoke_m3.ps1`  
+M4 冒烟：`pwsh ./scripts/smoke_m4.ps1`  
+单元测试：`pytest tests/`
+
+> 本地若从旧 `postgres:16-alpine` 升级到 PostGIS 镜像，需重建开发数据卷一次（见 `AGENTS.md`）。
 
 操作与发版：[docs/OPS.md](./docs/OPS.md)。Agent 协作：[AGENTS.md](./AGENTS.md)。  
 云上命令速查：[deploy/helper.md](./deploy/helper.md)。多仓关系：[../DEPLOYMENT_SETUP.md](../DEPLOYMENT_SETUP.md)、[../AGENTS.md](../AGENTS.md)。

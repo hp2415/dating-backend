@@ -14,7 +14,9 @@ from app.models import (
     PostStatus,
     UserProfile,
 )
+from app.modules.events.service import DomainEventName, DomainEventService
 from app.shared.errors import AppError
+from app.shared.pagination import legacy_admin_page
 from app.shared.response import ErrorCodes
 
 
@@ -39,7 +41,7 @@ class CommunityAdminService:
         if status != "all":
             count_stmt = count_stmt.where(CommunityPost.status == status)
         total = int(await self.db.scalar(count_stmt) or 0)
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
+        return legacy_admin_page(items, total=total, limit=limit, offset=offset)
 
     async def review_post(self, admin: AdminUser, post_id: UUID, body: ReviewPostRequest) -> dict:
         if body.action not in ("approve", "reject"):
@@ -63,6 +65,12 @@ class CommunityAdminService:
                 target_id=str(post.id),
                 detail={"action": body.action, "admin_note": body.admin_note},
             )
+        )
+        await DomainEventService(self.db).enqueue(
+            name=DomainEventName.COMMUNITY_POST_REVIEWED,
+            aggregate_kind="community_post",
+            aggregate_id=post.id,
+            payload={"action": body.action, "status": post.status, "admin_id": str(admin.id)},
         )
         await self.db.commit()
         return await self._brief(post)

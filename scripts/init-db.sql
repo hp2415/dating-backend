@@ -1,5 +1,6 @@
 -- Dev bootstrap for dating app (idempotent-friendly)
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "postgis";
 
 -- Placeholder schema marker; Alembic will own real migrations later.
 CREATE TABLE IF NOT EXISTS schema_meta (

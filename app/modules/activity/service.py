@@ -91,6 +91,9 @@ class ActivityService:
                 status=ParticipantStatus.JOINED.value,
             )
         )
+        from app.modules.messaging.service import MessagingService
+
+        await MessagingService(self.db).ensure_activity_group(activity, user.id)
         await self.db.commit()
         await self.db.refresh(activity)
         return await self._brief(activity, viewer_id=user.id, include_members=False)
@@ -163,6 +166,16 @@ class ActivityService:
                 )
             )
         activity.join_count = int(activity.join_count or 0) + 1
+        from app.modules.events.service import DomainEventName, DomainEventService
+        from app.modules.messaging.service import MessagingService
+
+        await MessagingService(self.db).ensure_activity_group(activity, user.id)
+        await DomainEventService(self.db).enqueue(
+            name=DomainEventName.ACTIVITY_JOINED,
+            aggregate_kind="activity",
+            aggregate_id=activity.id,
+            payload={"user_id": str(user.id), "host_id": str(activity.host_id)},
+        )
         await self.db.commit()
         try:
             from app.modules.recommend.service import RecommendService

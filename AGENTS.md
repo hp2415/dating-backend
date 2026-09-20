@@ -11,7 +11,68 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 
 ## 模块
 
-`app/modules/`：`auth` · `user` · `media` · discover/swipe · reports/blocks · `activities` · `community`。共享能力在 `app/shared/`。表结构变更只走 Alembic，禁止手改生产库。
+`app/modules/`：`auth` · `user` · `media` · discover/swipe · reports/blocks · `activities` · `community` · `commerce` · `messaging` · `companion` · `trust` · `ops` · `events`（outbox）。共享能力在 `app/shared/`（分页、幂等、限流、地理）。表结构变更只走 Alembic，禁止手改生产库。
+
+## M3 底座（已落地）
+
+- ARQ Worker：`python -m workers.runner`（队列 cron + `drain_domain_events`）
+- 领域事件表 `domain_events` + `/admin/v1/ops/domain-events`
+- 幂等表 `idempotency_records` + `app/shared/idempotency.py`
+- Admin RBAC：`require_perm(...)` 已挂到审核路由
+- 统一分页：`page_info`（admin 列表仍保留 `total/limit/offset` 兼容）
+- 全局 500 兜底 + 可选 Sentry（`SENTRY_DSN`）
+- PostGIS：本地 compose 用 `postgis/postgis:16-3.4`；迁移在扩展可用时启用
+- 测试：`pytest tests/`；冒烟：`scripts/smoke_m3.ps1`
+
+## M4 交易履约（已落地 · 支付为 stub）
+
+- 表：`orders` / `payments` / `refunds` / `wallet_*` / `membership_*` / `credentials`
+- 客户端：`/api/v1/orders|me/wallet|refunds|membership|me/credentials`
+- 支付：`wallet` 真实扣余额；`wechat|alipay|apple_pay` 为演示通道（`PAYMENT_STUB_AUTO_COMPLETE=true` 时即时成功）
+- 回调预留：`POST /internal/pay/notify/{provider}`
+- 运营：`/admin/v1/orders|refunds|wallet/ledger|finance/reconciliation`
+- 冒烟：`scripts/smoke_m4.ps1`
+
+## M5 消息关系（已落地 · 云 IM 为 noop stub）
+
+- 表：`conversations` / `conversation_members` / `friendships` / `friend_requests` / `message_requests` / `chat_transfers` / `call_sessions`；`users.public_uid`
+- 客户端：`/api/v1/conversations|friends|friend-requests|message-requests|transfers|calls` + `/chat/token|status` + `/users/by-uid/{uid}` + `/me/public-uid` + `/activities/{id}/conversation`
+- IM：`ImProvider` 默认 `noop`（`IM_PROVIDER`）；消息体走云 IM，后端只管关系与业务元数据
+- 活动报名 / 创建 → 自动确保活动群（`activity.joined` 事件可幂等补成员）
+- 运营只读：`/admin/v1/conversations|friendships|message-requests|transfers|calls`（`chat:read`）
+- 冒烟：`scripts/smoke_m5.ps1`；单测：`tests/test_m5_messaging.py`
+- 接真 SDK（融云/网易/腾讯）时只替换 `app/modules/messaging/provider.py`，路由合同不变
+
+## M6 搭子预约（已落地）
+
+- 表：`buddy_intents|greetings|invites` · `companion_profiles|services|slots|bookings|reviews|leaderboard`
+- 客户端：`/api/v1/buddies/*` · `/companions/*` · `/bookings/*` · `/me/buddy-intent|companion-profile|bookings`
+- 预约占档 15 分钟 + `Idempotency-Key`；支付走 M4 `orders`（`kind=companion_booking`），支付成功回写 booking
+- 运营：`/admin/v1/companions`（审核）· `/bookings` · `/buddy-intents`（`companion:read|review`）
+- 冒烟：`scripts/smoke_m6.ps1`
+
+## M7 信任与治理（已落地）
+
+- 表：`trust_events|scores|badges` · `verifications` · `safety_checkins` · `sanctions` · `moderation_tasks` · `sensitive_words`
+- 客户端：`GET /me/trust`（私域分数）· `GET /users/{id}/trust`（公开仅徽章+事实）· `POST /trust/events` · `/verifications/photo` · `/safety/checkins`
+- 运营：信任分/事件、认证审核、处置台账、统一审核队列、敏感词（`trust:*` / `verification:review` / `sanction:write`）
+- 冒烟：`scripts/smoke_m7.ps1`
+
+## M8 运营配置（已落地）
+
+- 表：`taxonomies` · `discover_shelves|items` · `notifications` · `push_tokens` · `push_campaigns` · `announcements` · `feedbacks`
+- 客户端：`/taxonomies` · `/discover/shelves` · `/me/push-token` · `/notifications` · `/announcements` · `/feedbacks`
+- 运营：分类/货架/公告/反馈/推送任务（`config:*` / `push:write`）；启动时种子默认分类
+- 冒烟：`scripts/smoke_m8.ps1`；单测：`tests/test_m6_m8_foundation.py`
+- 当前版本：`0.8.0`
+
+本地若从旧 `postgres:16-alpine` 升级，需重建数据卷一次（仅开发环境）：
+
+```bash
+docker compose down
+docker volume rm dating-backend_postgres_data   # 名称以 docker volume ls 为准
+docker compose up -d --build
+```
 
 ## 改接口时
 

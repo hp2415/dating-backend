@@ -147,13 +147,10 @@ class MatchService:
             self.db.add(match)
             await self.db.flush()
 
-        # Reserve IM conversation id for later SDK wiring
+        # Reserve IM conversation id (noop stub until cloud SDK wired)
         provider = get_im_provider()
-        conv_id = await provider.open_conversation(a, b)
-        if conv_id:
-            match.im_conversation_id = conv_id
-        else:
-            match.im_conversation_id = f"pending_{match.id}"
+        conv_id = await provider.open_direct(a, b)
+        match.im_conversation_id = conv_id or f"pending_{match.id}"
         return match
 
     async def _find_active_match(self, a: UUID, b: UUID) -> Match | None:

@@ -1,12 +1,12 @@
 from uuid import UUID
 
-from fastapi import Depends, Request
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AdminUser
-from app.shared.db import SessionLocal
+from app.modules.admin.service import has_permission
 from app.shared.deps import get_db
 from app.shared.errors import AppError
 from app.shared.response import ErrorCodes
@@ -41,3 +41,19 @@ async def get_current_admin(
     if not admin.is_active:
         raise AppError(ErrorCodes.ADMIN_DISABLED, "账号已停用", status_code=403)
     return admin
+
+
+def require_perm(*permissions: str):
+    """FastAPI dependency factory — any active admin must hold all listed perms."""
+
+    async def _dep(admin: AdminUser = Depends(get_current_admin)) -> AdminUser:
+        if not has_permission(admin.role, *permissions):
+            needed = ", ".join(permissions)
+            raise AppError(
+                ErrorCodes.ADMIN_FORBIDDEN,
+                f"权限不足，需要: {needed}",
+                status_code=403,
+            )
+        return admin
+
+    return _dep

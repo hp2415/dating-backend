@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AdminUser
-from app.modules.admin.deps import get_current_admin
+from app.modules.admin.deps import get_current_admin, require_perm
 from app.modules.admin.activity import ActivityAdminService, ReviewActivityRequest
 from app.modules.admin.community import CommunityAdminService, ReviewPostRequest
 from app.modules.admin.moderation import (
@@ -44,7 +44,7 @@ async def admin_me(
 @router.get("/dashboard/summary")
 async def dashboard_summary(
     request: Request,
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("dashboard:read")),
     db: AsyncSession = Depends(get_db),
 ):
     data = await ModerationService(db).dashboard_summary(admin)
@@ -57,7 +57,7 @@ async def list_reports(
     status: str | None = Query(default="pending"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("report:read")),
     db: AsyncSession = Depends(get_db),
 ):
     _ = admin
@@ -70,7 +70,7 @@ async def resolve_report(
     report_id: UUID,
     body: ResolveReportRequest,
     request: Request,
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("report:write")),
     db: AsyncSession = Depends(get_db),
 ):
     data = await ModerationService(db).resolve_report(admin, report_id, body)
@@ -83,7 +83,7 @@ async def list_media(
     audit_status: str | None = Query(default="pending"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("media:read")),
     db: AsyncSession = Depends(get_db),
 ):
     _ = admin
@@ -96,7 +96,7 @@ async def review_media(
     media_id: UUID,
     body: ReviewMediaRequest,
     request: Request,
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("media:review")),
     db: AsyncSession = Depends(get_db),
 ):
     data = await ModerationService(db).review_media(admin, media_id, body)
@@ -109,7 +109,7 @@ async def list_community_posts(
     status: str | None = Query(default="pending"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("community:read")),
     db: AsyncSession = Depends(get_db),
 ):
     _ = admin
@@ -122,7 +122,7 @@ async def review_community_post(
     post_id: UUID,
     body: ReviewPostRequest,
     request: Request,
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("community:review")),
     db: AsyncSession = Depends(get_db),
 ):
     data = await CommunityAdminService(db).review_post(admin, post_id, body)
@@ -135,7 +135,7 @@ async def list_activities_admin(
     status: str | None = Query(default="pending"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("activity:read")),
     db: AsyncSession = Depends(get_db),
 ):
     _ = admin
@@ -148,7 +148,7 @@ async def review_activity(
     activity_id: UUID,
     body: ReviewActivityRequest,
     request: Request,
-    admin: AdminUser = Depends(get_current_admin),
+    admin: AdminUser = Depends(require_perm("activity:review")),
     db: AsyncSession = Depends(get_db),
 ):
     data = await ActivityAdminService(db).review(admin, activity_id, body)

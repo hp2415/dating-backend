@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,14 +11,93 @@ from app.shared.passwords import verify_password
 from app.shared.response import ErrorCodes
 from app.shared.security import create_admin_access_token
 
-# Simple permission map by role for skeleton stage
+# Permission codes: <resource>:<action>. superadmin has "*".
 ROLE_PERMISSIONS: dict[str, list[str]] = {
     "superadmin": ["*"],
-    "auditor": ["user:read", "moderation:read", "moderation:write", "report:read", "report:write"],
-    "operator": ["user:read", "config:read", "config:write", "dashboard:read"],
-    "support": ["user:read", "report:read", "report:write"],
-    "readonly": ["user:read", "dashboard:read", "report:read"],
+    "auditor": [
+        "dashboard:read",
+        "user:read",
+        "moderation:read",
+        "moderation:write",
+        "report:read",
+        "report:write",
+        "activity:read",
+        "activity:review",
+        "community:read",
+        "community:review",
+        "media:read",
+        "media:review",
+        "order:read",
+        "chat:read",
+        "companion:read",
+        "companion:review",
+        "trust:read",
+        "trust:write",
+        "verification:review",
+    ],
+    "operator": [
+        "dashboard:read",
+        "user:read",
+        "activity:read",
+        "community:read",
+        "media:read",
+        "config:read",
+        "config:write",
+        "report:read",
+        "order:read",
+        "chat:read",
+        "companion:read",
+        "trust:read",
+        "push:write",
+    ],
+    "support": [
+        "dashboard:read",
+        "user:read",
+        "report:read",
+        "report:write",
+        "activity:read",
+        "community:read",
+        "order:read",
+        "order:refund",
+        "chat:read",
+        "companion:read",
+        "trust:read",
+        "sanction:write",
+    ],
+    "readonly": [
+        "dashboard:read",
+        "user:read",
+        "report:read",
+        "activity:read",
+        "community:read",
+        "media:read",
+        "moderation:read",
+        "order:read",
+        "chat:read",
+        "companion:read",
+        "trust:read",
+        "config:read",
+    ],
+    "finance": [
+        "dashboard:read",
+        "order:read",
+        "order:write",
+        "order:refund",
+        "user:read",
+        "companion:read",
+    ],
 }
+
+
+def permissions_for_role(role: str) -> list[str]:
+    return list(ROLE_PERMISSIONS.get(role, []))
+
+
+def has_permission(role: str, *needed: str) -> bool:
+    granted = ROLE_PERMISSIONS.get(role, [])
+    if "*" in granted:
+        return True
+    return all(p in granted for p in needed)
 
 
 class AdminAuthService:
@@ -69,6 +147,6 @@ class AdminAuthService:
             "username": admin.username,
             "display_name": admin.display_name,
             "role": admin.role,
-            "permissions": ROLE_PERMISSIONS.get(admin.role, []),
+            "permissions": permissions_for_role(admin.role),
             "last_login_at": admin.last_login_at.isoformat() if admin.last_login_at else None,
         }

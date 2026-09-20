@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # PostGIS-enabled image (M3). Existing alpine volumes need recreate once:
+    # docker compose down && docker volume rm dating-backend_postgres_data
+    image: postgis/postgis:16-3.4
     container_name: dating-postgres
     restart: unless-stopped
     environment:

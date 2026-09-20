@@ -24,7 +24,9 @@ from app.models import (
     UserStatus,
 )
 from app.shared.errors import AppError
+from app.shared.pagination import legacy_admin_page
 from app.shared.response import ErrorCodes
+from app.modules.events.service import DomainEventName, DomainEventService
 
 ALLOWED_RESOLUTIONS = {r.value for r in ReportResolution}
 
@@ -114,7 +116,7 @@ class ModerationService:
         if status != "all":
             count_stmt = count_stmt.where(Report.status == status)
         total = int(await self.db.scalar(count_stmt) or 0)
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
+        return legacy_admin_page(items, total=total, limit=limit, offset=offset)
 
     async def resolve_report(self, admin: AdminUser, report_id: UUID, body: ResolveReportRequest) -> dict:
         if body.resolution not in ALLOWED_RESOLUTIONS:
@@ -163,6 +165,16 @@ class ModerationService:
                 },
             )
         )
+        await DomainEventService(self.db).enqueue(
+            name=DomainEventName.REPORT_RESOLVED,
+            aggregate_kind="report",
+            aggregate_id=report.id,
+            payload={
+                "resolution": body.resolution,
+                "target_user_id": str(report.target_user_id),
+                "admin_id": str(admin.id),
+            },
+        )
         await self.db.commit()
         return await self._report_brief(report)
 
@@ -201,7 +213,7 @@ class ModerationService:
                 )
                 or 0
             )
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
+        return legacy_admin_page(items, total=total, limit=limit, offset=offset)
 
     async def review_media(self, admin: AdminUser, media_id: UUID, body: ReviewMediaRequest) -> dict:
         if body.action not in ("approve", "reject"):
@@ -222,6 +234,12 @@ class ModerationService:
                 target_id=str(media.id),
                 detail={"action": body.action, "admin_note": body.admin_note},
             )
+        )
+        await DomainEventService(self.db).enqueue(
+            name=DomainEventName.MEDIA_REVIEWED,
+            aggregate_kind="media",
+            aggregate_id=media.id,
+            payload={"action": body.action, "audit_status": media.audit_status, "admin_id": str(admin.id)},
         )
         await self.db.commit()
         return {

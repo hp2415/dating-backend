@@ -1,27 +1,29 @@
-"""Background workers package (ARQ / Redis Streams later)."""
+"""Background workers entrypoint (ARQ).
 
-import asyncio
+Docker::
+
+    python -m workers.runner
+
+Local::
+
+    python -m arq workers.settings.WorkerSettings
+"""
+
+from __future__ import annotations
+
 import logging
 
-from redis.asyncio import Redis
-
-from app.shared.config import settings
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("dating-worker")
 
 
-async def run() -> None:
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    logger.info("Worker started. env=%s redis=%s", settings.app_env, settings.redis_url)
-    try:
-        while True:
-            # Placeholder loop — replace with ARQ worker when task queue is wired.
-            await redis.set("worker:heartbeat", "1", ex=30)
-            await asyncio.sleep(10)
-    finally:
-        await redis.aclose()
+def main() -> None:
+    from arq.worker import create_worker
+
+    from workers.settings import WorkerSettings
+
+    worker = create_worker(WorkerSettings)
+    worker.run()
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    main()
