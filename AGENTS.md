@@ -72,7 +72,7 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 - 相册：`GET/DELETE /api/v1/me/media`
 - `MEDIA_AUTO_APPROVE` / `SMS_ALLOW_DEV_CODE` 与 `APP_ENV` 解耦
 - 短信：`SmsProvider`（默认 `log`）+ 表 `sms_send_logs`；运营 `GET /admin/v1/config/sms` · `POST .../test-send` · `GET /admin/v1/sms-logs`
-- 冒烟：`scripts/smoke_media_local.ps1`；单测：`tests/test_media_local_sms.py`
+- 冒烟：`scripts/smoke_media_local.ps1` / `scripts/smoke_media_local.sh`；单测：`tests/test_media_local_sms.py`
 - 当前版本：`0.9.0`
 
 本地若从旧 `postgres:16-alpine` 升级，需重建数据卷一次（仅开发环境）：
