@@ -6,9 +6,14 @@ import base64
 import hashlib
 import hmac
 import os
+import re
 
 _ALGO = "pbkdf2_sha256"
 _ITERATIONS = 210_000
+# Hashes written before the base64 format: salt is 32 hex chars used as UTF-8
+# bytes, digest is 64 hex chars. Those rows still exist for the original admin.
+_LEGACY_SALT = re.compile(r"^[0-9a-f]{32}$")
+_LEGACY_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
 def hash_password(password: str) -> str:
@@ -25,12 +30,21 @@ def verify_password(password: str, stored: str | None) -> bool:
     if not password or not stored:
         return False
     try:
-        algo, iters, salt_b64, hash_b64 = stored.split("$", 3)
+        algo, iters, salt_part, hash_part = stored.split("$", 3)
         if algo != _ALGO:
             return False
-        salt = base64.b64decode(salt_b64)
-        expected = base64.b64decode(hash_b64)
-        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, int(iters))
+        iterations = int(iters)
+        if _LEGACY_SALT.fullmatch(salt_part) and _LEGACY_DIGEST.fullmatch(hash_part):
+            digest_hex = hashlib.pbkdf2_hmac(
+                "sha256",
+                password.encode("utf-8"),
+                salt_part.encode("utf-8"),
+                iterations,
+            ).hex()
+            return hmac.compare_digest(digest_hex, hash_part)
+        salt = base64.b64decode(salt_part)
+        expected = base64.b64decode(hash_part)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
         return hmac.compare_digest(digest, expected)
     except Exception:
         return False
