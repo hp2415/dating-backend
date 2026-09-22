@@ -57,6 +57,7 @@ class User(Base):
 
     id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     phone: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     public_uid: Mapped[Optional[str]] = mapped_column(String(9), unique=True, index=True, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=UserStatus.ACTIVE.value, nullable=False)
     discoverable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

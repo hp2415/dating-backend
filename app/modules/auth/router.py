@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.schemas import RefreshRequest, SmsLoginRequest, SmsSendRequest
+from app.modules.auth.schemas import PasswordLoginRequest, RefreshRequest, SmsLoginRequest, SmsSendRequest
 from app.modules.auth.service import AuthService
 from app.shared.deps import get_db, get_request_id
 from app.shared.response import ok
@@ -31,6 +31,18 @@ async def sms_login(
     db: AsyncSession = Depends(get_db),
 ):
     data = await AuthService(db).login(body.phone, body.code, body.device_id, body.platform)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/password/login")
+async def password_login(
+    body: PasswordLoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    data = await AuthService(db).login_with_password(
+        body.phone, body.password, body.device_id, body.platform
+    )
     return ok(data, request_id=get_request_id(request))
 
 

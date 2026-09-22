@@ -16,6 +16,13 @@ class SmsLoginRequest(BaseModel):
     platform: str = Field(default="android", max_length=32)
 
 
+class PasswordLoginRequest(BaseModel):
+    phone: str = Field(min_length=11, max_length=20)
+    password: str = Field(min_length=8, max_length=72)
+    device_id: str = Field(default="unknown", max_length=128)
+    platform: str = Field(default="android", max_length=32)
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

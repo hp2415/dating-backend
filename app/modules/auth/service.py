@@ -16,6 +16,7 @@ from app.models import Device, RefreshToken, SmsSendLog, User, UserPreference, U
 from app.modules.auth.sms_provider import get_sms_provider
 from app.shared.config import settings
 from app.shared.errors import AppError
+from app.shared.passwords import verify_password
 from app.shared.redis_client import get_redis
 from app.shared.response import ErrorCodes
 from app.shared.security import create_access_token, create_refresh_token, decode_token
@@ -37,6 +38,9 @@ def normalize_phone(phone: str) -> str:
 
 
 def _dev_code_allowed(phone: str) -> bool:
+    # Public environments must not accept the fixed code, even if the flag is left on.
+    if settings.app_env in {"staging", "production"}:
+        return False
     if settings.sms_allow_dev_code:
         return True
     wl = {p.strip() for p in settings.sms_dev_phone_whitelist.split(",") if p.strip()}
@@ -175,6 +179,40 @@ class AuthService:
                 "status": user.status,
             },
             "created": created,
+        }
+
+    async def login_with_password(self, phone: str, password: str, device_id: str, platform: str) -> dict:
+        phone = normalize_phone(phone)
+        if len(phone) < 11 or len(password) < 8:
+            raise AppError(ErrorCodes.AUTH_INVALID, "手机号或密码错误", status_code=401)
+
+        result = await self.db.execute(
+            select(User)
+            .where(User.phone == phone)
+            .options(selectinload(User.profile), selectinload(User.preference))
+        )
+        user = result.scalar_one_or_none()
+        if user is None or not verify_password(password, user.password_hash):
+            raise AppError(ErrorCodes.AUTH_INVALID, "手机号或密码错误", status_code=401)
+        if user.status == UserStatus.BANNED.value:
+            raise AppError(ErrorCodes.AUTH_BANNED, "账号已被封禁", status_code=403)
+        if user.status == UserStatus.DELETED.value:
+            raise AppError(ErrorCodes.AUTH_UNAUTHORIZED, "账号已注销", status_code=401)
+
+        user.last_active_at = datetime.now(timezone.utc)
+        await self._upsert_device(user.id, device_id, platform)
+        tokens = await self._issue_tokens(user.id)
+        await self.db.commit()
+        return {
+            "tokens": tokens,
+            "user": {
+                "id": user.id,
+                "phone_masked": mask_phone(user.phone),
+                "profile_completed": user.profile_completed,
+                "discoverable": user.discoverable,
+                "status": user.status,
+            },
+            "created": False,
         }
 
     async def refresh(self, refresh_token: str) -> dict:

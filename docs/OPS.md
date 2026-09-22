@@ -37,7 +37,7 @@ docker compose down
 
 ## 3. 常用验收
 
-开发短信码 `123456`。运营账号 `admin` / `Admin@123456`。
+开发登录：手机号 + 密码（`scripts/create_app_account.py`）。本地 `APP_ENV=development` 仍可用短信码 `123456`。运营账号 `admin` / `Admin@123456`。
 
 ```powershell
 .\scripts\smoke_test.ps1

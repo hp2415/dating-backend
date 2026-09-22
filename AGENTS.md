@@ -4,7 +4,7 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 
 ## 边界
 
-- 客户端：`/api/v1/*`（短信登录，开发码 `123456`）
+- 客户端：`/api/v1/*`（手机号 + 密码；本地开发仍可用短信码 `123456`，staging/production 关闭固定码）
 - 运营：`/admin/v1/*`（账号密码，种子 `admin`）
 - 响应：`{ "code": 0, "message": "...", "data": ... }`，失败 `code !== 0`
 - 不要在本仓写 React / Android UI。合同变了，到 `dating-web`、`dating-android`（及 iOS）改消费方。

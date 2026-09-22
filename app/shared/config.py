@@ -33,7 +33,8 @@ class Settings(BaseSettings):
     # SMS: provider abstraction (log = no external send). Dev code decoupled from APP_ENV.
     sms_provider: str = "log"  # log | aliyun | tencent
     sms_dev_code: str = "123456"
-    sms_allow_dev_code: bool = True  # local/staging; set false in production
+    # Fixed SMS code is local-dev only. staging/production ignore this flag (see auth service).
+    sms_allow_dev_code: bool = True
     sms_dev_phone_whitelist: str = ""  # comma-separated; always allow fixed code
     sms_code_ttl_seconds: int = 300
     sms_send_interval_seconds: int = 60
