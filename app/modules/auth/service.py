@@ -38,11 +38,23 @@ def normalize_phone(phone: str) -> str:
     return digits
 
 
+_dev_code_warned = False
+
+
 def _dev_code_allowed(phone: str) -> bool:
-    # Public environments must not accept the fixed code, even if the flag is left on.
-    if settings.app_env in {"staging", "production"}:
-        return False
+    """Honor SMS_ALLOW_DEV_CODE even when APP_ENV is staging/production.
+
+    Demo builds rely on the fixed code. A warning is logged so a forgotten flag
+    on a real production host is visible in the API logs.
+    """
+    global _dev_code_warned
     if settings.sms_allow_dev_code:
+        if settings.app_env in {"staging", "production"} and not _dev_code_warned:
+            _dev_code_warned = True
+            logger.warning(
+                "SMS_ALLOW_DEV_CODE is enabled while APP_ENV=%s; the fixed SMS code is accepted",
+                settings.app_env,
+            )
         return True
     wl = {p.strip() for p in settings.sms_dev_phone_whitelist.split(",") if p.strip()}
     return phone in wl
@@ -180,6 +192,7 @@ class AuthService:
                 "status": user.status,
             },
             "created": created,
+            "is_new_user": created,
         }
 
     async def login_with_password(self, phone: str, password: str, device_id: str, platform: str) -> dict:
@@ -215,6 +228,7 @@ class AuthService:
                 "status": user.status,
             },
             "created": False,
+            "is_new_user": False,
         }
 
     async def refresh(self, refresh_token: str) -> dict:
