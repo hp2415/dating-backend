@@ -1,4 +1,4 @@
-"""Cloud IM adapter — noop stub by default; swap without changing route contracts."""
+"""Cloud IM adapter — noop by default; set IM_PROVIDER=tencent for Tencent Cloud IM."""
 
 from __future__ import annotations
 
@@ -38,9 +38,10 @@ class NoopImProvider(ImProvider):
             "token": f"noop-token-{user_id}",
             "expires_in": 3600,
             "ready": False,
-            "conversation_id": str(conversation_id) if conversation_id else None,
+            "sdk_app_id": 0,
             "im_user_id": f"noop_{user_id}",
-            "message": "云 IM 未接入（noop stub）。接融云/网易/腾讯 IM 时只替换 ImProvider。",
+            "conversation_id": str(conversation_id) if conversation_id else None,
+            "message": "云 IM 未接入（noop stub）。设 IM_PROVIDER=tencent 并配置密钥后生效。",
         }
 
     async def open_direct(self, user_a: UUID, user_b: UUID) -> str | None:
@@ -55,15 +56,22 @@ class NoopImProvider(ImProvider):
 
 
 def get_im_provider() -> ImProvider:
-    # Reserved: settings.im_provider in {rongcloud, netease, tencent}
-    if settings.im_provider != "noop":
-        pass
+    name = (settings.im_provider or "noop").strip().lower()
+    if name == "tencent":
+        from app.modules.messaging.tencent_im import TencentImProvider
+
+        return TencentImProvider()
     return NoopImProvider()
 
 
 def im_status() -> dict[str, Any]:
+    ready = False
+    message = "noop stub"
+    if (settings.im_provider or "").strip().lower() == "tencent":
+        ready = bool(settings.tencent_im_sdk_app_id and settings.tencent_im_secret_key)
+        message = "tencent im" if ready else "tencent configured but keys missing"
     return {
         "provider": settings.im_provider,
-        "ready": settings.im_provider != "noop",
-        "message": "noop stub" if settings.im_provider == "noop" else "cloud im",
+        "ready": ready,
+        "message": message,
     }

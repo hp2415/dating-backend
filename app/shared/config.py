@@ -61,8 +61,12 @@ class Settings(BaseSettings):
     seed_demo_users: bool = True
     seed_demo_user_count: int = 40
 
-    # IM provider (noop stub; swap to rongcloud / netease / tencent without route changes)
+    # IM provider (noop stub; set IM_PROVIDER=tencent + TENCENT_IM_* for Tencent Cloud IM)
     im_provider: str = "noop"
+    tencent_im_sdk_app_id: int = 0
+    tencent_im_secret_key: str = ""
+    tencent_im_admin_user: str = "administrator"
+    tencent_im_usersig_expire_seconds: int = 604800  # 7 days
 
     # M3 foundation
     sentry_dsn: str = ""

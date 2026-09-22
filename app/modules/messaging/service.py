@@ -33,7 +33,7 @@ from app.models import (
 )
 from app.modules.commerce.wallet import WalletService
 from app.modules.events.service import DomainEventName, DomainEventService
-from app.modules.messaging.provider import get_im_provider
+from app.modules.messaging.provider import get_im_provider, im_status
 from app.modules.messaging.uid import ensure_public_uid
 from app.modules.safety.service import is_blocked_either
 from app.shared.errors import AppError
@@ -648,7 +648,7 @@ class MessagingService:
             "pinned": bool(member.pinned) if member else False,
             "unread_count": int(member.unread_count) if member else 0,
             "my_role": member.role if member else None,
-            "im_ready": False,
+            "im_ready": bool(im_status().get("ready")),
         }
 
     def friend_request_brief(self, req: FriendRequest) -> dict:
