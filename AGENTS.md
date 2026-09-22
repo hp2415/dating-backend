@@ -5,13 +5,13 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 ## 边界
 
 - 客户端：`/api/v1/*`（手机号 + 密码；本地开发仍可用短信码 `123456`，staging/production 关闭固定码）
-- 运营：`/admin/v1/*`（账号密码，种子 `admin`）
+- 运营：`/admin/v1/*`（账号密码；启动种子 `admin` / `auditor` / `finance`，密码见 `ADMIN_DEFAULT_PASSWORD`）
 - 响应：`{ "code": 0, "message": "...", "data": ... }`，失败 `code !== 0`
 - 不要在本仓写 React / Android UI。合同变了，到 `dating-web`、`dating-android`（及 iOS）改消费方。
 
 ## 模块
 
-`app/modules/`：`auth` · `user` · `media` · discover/swipe · reports/blocks · `activities` · `community` · `commerce` · `messaging` · `companion` · `trust` · `ops` · `events`（outbox）。共享能力在 `app/shared/`（分页、幂等、限流、地理）。表结构变更只走 Alembic，禁止手改生产库。
+`app/modules/`：`auth` · `user` · `media` · discover/swipe · reports/blocks · `activities` · `community` · `commerce` · `messaging` · `companion` · `trust` · `ops` · `analytics` · `metrics` · `events`（outbox，含通知派发）。共享能力在 `app/shared/`（分页、幂等、限流、地理）。表结构变更只走 Alembic，禁止手改生产库。
 
 ## M3 底座（已落地）
 
@@ -23,7 +23,7 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 - 全局 500 兜底 + 可选 Sentry（`SENTRY_DSN`）
 - PostGIS：本地 compose 用 `postgis/postgis:16-3.4`；迁移在扩展可用时启用
 - 测试：`pytest tests/`；冒烟：`scripts/smoke_m3.ps1` … `smoke_m8.ps1`、`smoke_e2e_app.ps1` / `.sh`、`smoke_media_local.ps1` / `.sh`
-- 内容冷启动（手动）：`python scripts/seed_content.py --base http://127.0.0.1:8000`
+- 演示数据（手动）：`python scripts/seed_content.py --base http://127.0.0.1:8000` → [docs/DEMO_SEED.md](./docs/DEMO_SEED.md)；试用说明在 Android 仓 `docs/DEMO_GUIDE.md`
 
 ## M4 交易履约（已落地 · 支付为 stub）
 
@@ -31,8 +31,16 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 - 客户端：`/api/v1/orders|me/wallet|refunds|membership|me/credentials`
 - 支付：`wallet` 真实扣余额；`wechat|alipay|apple_pay` 为演示通道（`PAYMENT_STUB_AUTO_COMPLETE=true` 时即时成功）
 - 回调预留：`POST /internal/pay/notify/{provider}`
-- 运营：`/admin/v1/orders|refunds|wallet/ledger|finance/reconciliation`
+- 运营：`/admin/v1/orders|refunds|wallet/ledger|wallet/grant|finance/reconciliation`
+- 运营发放余额：`POST /admin/v1/wallet/grant`（`order:write`，`WalletService.credit`；演示种子仅在余额为 0 时发放）
 - 冒烟：`scripts/smoke_m4.ps1`
+
+## 行为埋点与日指标（已落地）
+
+- 表：`analytics_events`（分区）· `analytics_event_dedupe` · `metrics_daily`
+- 客户端：`POST /api/v1/analytics/events`（批量上报，按 `event_id` 去重）
+- 运营：`/admin/v1/metrics/overview|funnel|retention` · `POST /admin/v1/metrics/rebuild`（`dashboard:read`）
+- 领域事件 → 站内通知：`app/modules/events/dispatch.py`（好友申请、审核结果、预约等）
 
 ## M5 消息关系（已落地 · 云 IM 为 noop stub）
 
@@ -81,7 +89,12 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 - 活动：`fee_type/fee_cents/fee_note` · `PUT /activities/{id}` · `POST .../cancel` · `GET/PUT .../details` · `POST/DELETE .../favorite` · `GET /activities/search`
 - 广场：`POST/DELETE .../bookmark` · `POST .../repost` · `GET /me/community/{bookmarks|liked|posts|reposts}`
 - 迁移：`0014_b_class_apis`；冒烟：`scripts/smoke_b_class.sh`；单测：`tests/test_b_class_apis.py`
-- 当前版本：`0.9.2`
+
+## 演示种子与运营发放（0.9.3）
+
+- `POST /admin/v1/wallet/grant`（`order:write`）· 启动种子 `admin` / `auditor` / `finance`
+- 脚本：`scripts/seed_content.py`（见 [docs/DEMO_SEED.md](./docs/DEMO_SEED.md)）
+- 当前版本：`0.9.3`
 
 本地若从旧 `postgres:16-alpine` 升级，需重建数据卷一次（仅开发环境）：
 

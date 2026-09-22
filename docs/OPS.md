@@ -37,7 +37,7 @@ docker compose down
 
 ## 3. 常用验收
 
-开发登录：手机号 + 密码（`scripts/create_app_account.py`）。本地 `APP_ENV=development` 仍可用短信码 `123456`。运营账号 `admin` / `Admin@123456`。
+开发登录：手机号 + 密码（`scripts/create_app_account.py`）。本地仍可用短信码 `123456`。运营种子账号：`admin`（超管）/ `auditor`（审核员）/ `finance`（财务），密码均为 `Admin@123456`（仅本地/演示种子）。演示内容：`python scripts/seed_content.py --base http://127.0.0.1:8000`（见 [DEMO_SEED.md](./DEMO_SEED.md)）。
 
 ```powershell
 .\scripts\smoke_test.ps1
@@ -60,6 +60,28 @@ docker compose down
 | 环境变量 | `/work_place/dating-backend/.env`（chmod 600，不进 git） |
 | Compose | `deploy/compose.app.yml`，项目名 `dating-app` |
 | 复用 | 已有 `wp_postgres` / `wp_redis`，**不要 down -v** |
+
+### 演示环境核对
+
+`compose up` **之前**在服务器 `/work_place/dating-backend/.env` 确认（勿提交真实密钥）：
+
+| 变量 | 演示建议 | 说明 |
+|------|----------|------|
+| `SMS_ALLOW_DEV_CODE` | `true` | 内测固定短信码；staging/production 逻辑仍可能忽略，以代码为准 |
+| `IM_PROVIDER` | `tencent` | 体验版 IM；本地可为 `noop` |
+| `TENCENT_IM_SDK_APP_ID` | 控制台 SDKAppID | 与 `config.py` 字段 `tencent_im_sdk_app_id` 对应 |
+| `TENCENT_IM_SECRET_KEY` | 控制台密钥 | 与 `tencent_im_secret_key` 对应 |
+| `PAYMENT_STUB_AUTO_COMPLETE` | `true` | stub 通道即时完成 |
+| `MEDIA_AUTO_APPROVE` | 按需 `true` | 媒体自动过审 |
+| `SENTRY_DSN` | 可选 | 空则不上报 |
+
+发版：**两仓都 `git pull`**，再：
+
+```bash
+docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d --build
+```
+
+**禁止** `docker compose down -v`（会打到共用的 `wp_postgres` / `wp_redis`）。
 
 日常更新：
 

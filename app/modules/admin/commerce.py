@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AdminUser, Order, Payment, Refund, WalletLedger
+from app.models import AdminUser, Order, Payment, Refund, WalletLedger, WalletLedgerKind
 from app.modules.admin.deps import require_perm
-from app.modules.commerce.schemas import AdminRefundAction
+from app.modules.commerce.schemas import AdminRefundAction, AdminWalletGrantRequest
 from app.modules.commerce.service import CommerceService
 from app.modules.commerce.wallet import WalletService
 from app.shared.deps import get_db, get_request_id
@@ -172,6 +172,32 @@ async def admin_wallet_ledger(
             "reconciliation": recon,
             **legacy_admin_page(items, total=total, limit=limit, offset=offset),
         },
+        request_id=get_request_id(request),
+    )
+
+
+# Ops/demo wallet credit (not client top-up stub). Body: user_id, amount_cents, title.
+@router.post("/wallet/grant")
+async def admin_wallet_grant(
+    body: AdminWalletGrantRequest,
+    request: Request,
+    admin: AdminUser = Depends(require_perm("order:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    wallet = WalletService(db)
+    entry = await wallet.credit(
+        body.user_id,
+        amount_cents=body.amount_cents,
+        kind=WalletLedgerKind.TOP_UP.value,
+        title=body.title.strip() or "运营发放",
+        related_order_id=None,
+        method="admin",
+        subtitle=f"admin:{admin.username}",
+    )
+    await db.commit()
+    brief = await wallet.brief(body.user_id)
+    return ok(
+        {"wallet": brief, "ledger_id": str(entry.id)},
         request_id=get_request_id(request),
     )
 

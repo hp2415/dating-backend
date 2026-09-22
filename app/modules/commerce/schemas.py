@@ -40,6 +40,12 @@ class AdminRefundAction(BaseModel):
     admin_note: Optional[str] = Field(default=None, max_length=500)
 
 
+class AdminWalletGrantRequest(BaseModel):
+    user_id: UUID
+    amount_cents: int = Field(ge=1, le=10_000_000)
+    title: str = Field(default="运营发放", max_length=120)
+
+
 class StubNotifyRequest(BaseModel):
     provider_txn_id: str
     amount_cents: int = 0

@@ -452,6 +452,14 @@ class ActivityService:
         activity.status = ActivityStatus.CANCELLED.value
         activity.cancel_reason = (body.reason or "").strip() or None
         activity.cancelled_at = datetime.now(timezone.utc)
+        from app.modules.events.service import DomainEventName, DomainEventService
+
+        await DomainEventService(self.db).enqueue(
+            name=DomainEventName.ACTIVITY_CANCELLED,
+            aggregate_kind="activity",
+            aggregate_id=activity.id,
+            payload={"host_id": str(activity.host_id), "reason": activity.cancel_reason or ""},
+        )
         await self.db.commit()
         await self.db.refresh(activity)
         return await self._brief(activity, viewer_id=user.id, include_members=False)

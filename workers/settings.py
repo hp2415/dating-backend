@@ -15,6 +15,7 @@ from workers.tasks import (
     expire_unpaid_orders,
     finance_reconciliation_stub,
     heartbeat,
+    maintain_analytics_partitions,
     materialize_dashboard_stub,
     remind_upcoming_activities_stub,
 )
@@ -53,6 +54,7 @@ class WorkerSettings:
     functions = [
         drain_domain_events,
         heartbeat,
+        maintain_analytics_partitions,
         expire_unpaid_orders,
         remind_upcoming_activities_stub,
         materialize_dashboard_stub,
@@ -63,6 +65,7 @@ class WorkerSettings:
         cron(drain_domain_events, second={0, 15, 30, 45}),
         cron(expire_unpaid_orders, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
         cron(remind_upcoming_activities_stub, minute={0, 30}),
+        cron(maintain_analytics_partitions, hour={2}, minute={10}),
         cron(materialize_dashboard_stub, hour={1}, minute={5}),
         cron(finance_reconciliation_stub, hour={3}, minute={10}),
     ]

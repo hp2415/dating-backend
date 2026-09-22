@@ -64,10 +64,33 @@ async def remind_upcoming_activities_stub(ctx: dict[str, Any]) -> str:
     return "stub"
 
 
+async def maintain_analytics_partitions(ctx: dict[str, Any]) -> dict[str, list[str]]:
+    factory = ctx["db_factory"]
+    async with factory() as session:
+        from app.modules.analytics.partitions import drop_expired_partitions, ensure_future_partitions
+
+        created = await ensure_future_partitions(session, months_ahead=3)
+        dropped = await drop_expired_partitions(session, keep_days=90)
+        await session.commit()
+    if dropped:
+        logger.info("analytics partitions dropped=%s", dropped)
+    return {"ensured": created, "dropped": dropped}
+
+
 async def materialize_dashboard_stub(ctx: dict[str, Any]) -> str:
-    """M8+: nightly dashboard aggregates."""
-    logger.debug("materialize_dashboard_stub tick")
-    return "stub"
+    """Nightly product metrics for yesterday (Asia/Shanghai). Name kept for the cron job."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.modules.metrics.service import MetricsService
+    from app.shared.db import SessionLocal
+
+    day = (datetime.now(ZoneInfo("Asia/Shanghai")) - timedelta(days=1)).date()
+    async with SessionLocal() as session:
+        await MetricsService(session).rebuild_day(day)
+        await session.commit()
+    logger.info("metrics_daily rebuilt day=%s", day.isoformat())
+    return day.isoformat()
 
 
 async def finance_reconciliation_stub(ctx: dict[str, Any]) -> str:

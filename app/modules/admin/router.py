@@ -1,3 +1,4 @@
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -13,6 +14,7 @@ from app.modules.admin.moderation import (
     ReviewMediaRequest,
 )
 from app.modules.admin.schemas import AdminLoginRequest
+from app.modules.admin.insights import InsightsService
 from app.modules.admin.service import AdminAuthService
 from app.shared.deps import get_db, get_request_id
 from app.shared.response import ok
@@ -152,4 +154,80 @@ async def review_activity(
     db: AsyncSession = Depends(get_db),
 ):
     data = await ActivityAdminService(db).review(admin, activity_id, body)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/metrics/overview")
+async def metrics_overview(
+    request: Request,
+    days: int = Query(default=7, ge=1, le=90),
+    admin: AdminUser = Depends(require_perm("dashboard:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = admin
+    data = await InsightsService(db).overview(days)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/metrics/funnel")
+async def metrics_funnel(
+    request: Request,
+    name: str = Query(default="core"),
+    day_from: date | None = Query(default=None, alias="from"),
+    day_to: date | None = Query(default=None, alias="to"),
+    admin: AdminUser = Depends(require_perm("dashboard:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = admin
+    data = await InsightsService(db).funnel(name, day_from, day_to)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/metrics/retention")
+async def metrics_retention(
+    request: Request,
+    cohort: date | None = Query(default=None),
+    admin: AdminUser = Depends(require_perm("dashboard:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = admin
+    data = await InsightsService(db).retention(cohort)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/metrics/rebuild")
+async def metrics_rebuild(
+    request: Request,
+    days: int = Query(default=7, ge=1, le=90),
+    admin: AdminUser = Depends(require_perm("dashboard:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = admin
+    data = await InsightsService(db).rebuild(days)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/audit-logs")
+async def list_audit_logs(
+    request: Request,
+    admin_id: UUID | None = Query(default=None),
+    action: str | None = Query(default=None),
+    target_type: str | None = Query(default=None),
+    day_from: date | None = Query(default=None, alias="from"),
+    day_to: date | None = Query(default=None, alias="to"),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    admin: AdminUser = Depends(require_perm("dashboard:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = admin
+    data = await InsightsService(db).audit_logs(
+        admin_id=admin_id,
+        action=action,
+        target_type=target_type,
+        day_from=day_from,
+        day_to=day_to,
+        limit=limit,
+        offset=offset,
+    )
     return ok(data, request_id=get_request_id(request))

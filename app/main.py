@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.modules.activity.router import router as activity_router
+from app.modules.analytics.router import router as analytics_router
 from app.modules.admin.router import router as admin_router
 from app.modules.admin.seed import ensure_default_admin
 from app.modules.auth.router import router as auth_router
@@ -73,7 +74,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.9.2",
+    version="0.9.3",
     default_response_class=ORJSONResponse,
     lifespan=lifespan,
 )
@@ -89,6 +90,7 @@ app.add_middleware(
 app.add_middleware(RequestIdMiddleware)
 
 app.include_router(auth_router)
+app.include_router(analytics_router)
 app.include_router(user_router)
 app.include_router(media_router)
 app.include_router(media_me_router)

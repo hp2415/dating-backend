@@ -58,3 +58,16 @@ async def get_current_user(
     if user.status == UserStatus.DELETED.value:
         raise AppError(ErrorCodes.AUTH_UNAUTHORIZED, "账号已注销", status_code=401)
     return user
+
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """Best-effort viewer. Missing or invalid tokens are anonymous, not an error."""
+    if credentials is None or not credentials.credentials:
+        return None
+    try:
+        return await get_current_user(credentials, db)
+    except AppError:
+        return None
