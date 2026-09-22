@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models import Device, RefreshToken, SmsSendLog, User, UserPreference, UserProfile, UserStatus
 from app.modules.auth.sms_provider import get_sms_provider
+from app.modules.messaging.uid import ensure_public_uid
 from app.shared.config import settings
 from app.shared.errors import AppError
 from app.shared.passwords import verify_password
@@ -200,6 +201,7 @@ class AuthService:
             raise AppError(ErrorCodes.AUTH_UNAUTHORIZED, "账号已注销", status_code=401)
 
         user.last_active_at = datetime.now(timezone.utc)
+        await ensure_public_uid(self.db, user)
         await self._upsert_device(user.id, device_id, platform)
         tokens = await self._issue_tokens(user.id)
         await self.db.commit()

@@ -370,9 +370,12 @@ class MessagingService:
         return {"deleted": True}
 
     async def send_friend_request(
-        self, user: User, *, to_user_id: UUID | None, to_uid: str | None, message: str, source: str
+        self, user: User, *, to_user_id: UUID | None, to_uid: str | None, to_phone: str | None, message: str, source: str
     ) -> dict:
-        if to_uid:
+        if to_phone:
+            peer = await self._user_by_phone(to_phone)
+            to_user_id = peer.id
+        elif to_uid:
             peer = await self._user_by_uid(to_uid)
             to_user_id = peer.id
         if to_user_id is None:
@@ -393,7 +396,7 @@ class MessagingService:
         )
         hit = existing.scalar_one_or_none()
         if hit:
-            return self.friend_request_brief(hit)
+            return await self.friend_request_brief(hit)
 
         req = FriendRequest(
             id=uuid4(),
@@ -411,7 +414,7 @@ class MessagingService:
             aggregate_id=req.id,
             payload={"from": str(user.id), "to": str(to_user_id)},
         )
-        return self.friend_request_brief(req)
+        return await self.friend_request_brief(req)
 
     async def list_friend_requests(self, user_id: UUID, *, direction: str) -> list[dict]:
         if direction == "sent":
@@ -420,7 +423,10 @@ class MessagingService:
             stmt = select(FriendRequest).where(FriendRequest.to_user_id == user_id)
         stmt = stmt.order_by(FriendRequest.created_at.desc())
         result = await self.db.execute(stmt)
-        return [self.friend_request_brief(r) for r in result.scalars().all()]
+        items = []
+        for row in result.scalars().all():
+            items.append(await self.friend_request_brief(row))
+        return items
 
     async def respond_friend_request(self, user: User, request_id: UUID, *, accept: bool) -> dict:
         req = await self.db.get(FriendRequest, request_id)
@@ -437,7 +443,7 @@ class MessagingService:
         else:
             req.status = FriendRequestStatus.DECLINED.value
         await self.db.flush()
-        return self.friend_request_brief(req)
+        return await self.friend_request_brief(req)
 
     # ── message requests ───────────────────────────────────
 
@@ -651,11 +657,13 @@ class MessagingService:
             "im_ready": bool(im_status().get("ready")),
         }
 
-    def friend_request_brief(self, req: FriendRequest) -> dict:
+    async def friend_request_brief(self, req: FriendRequest) -> dict:
         return {
             "id": str(req.id),
             "from_user_id": str(req.from_user_id),
             "to_user_id": str(req.to_user_id),
+            "from_display_name": await self._display_name(req.from_user_id),
+            "to_display_name": await self._display_name(req.to_user_id),
             "message": req.message,
             "source": req.source,
             "status": req.status,
@@ -811,6 +819,18 @@ class MessagingService:
         if len(cleaned) != 9:
             raise AppError(ErrorCodes.USER_NOT_FOUND, "UID 格式错误", status_code=404)
         result = await self.db.execute(select(User).where(User.public_uid == cleaned))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise AppError(ErrorCodes.USER_NOT_FOUND, "用户不存在", status_code=404)
+        return user
+
+    async def _user_by_phone(self, phone: str) -> User:
+        from app.modules.auth.service import normalize_phone
+
+        cleaned = normalize_phone(phone)
+        if len(cleaned) != 11:
+            raise AppError(ErrorCodes.USER_NOT_FOUND, "手机号格式不正确", status_code=404)
+        result = await self.db.execute(select(User).where(User.phone == cleaned))
         user = result.scalar_one_or_none()
         if user is None:
             raise AppError(ErrorCodes.USER_NOT_FOUND, "用户不存在", status_code=404)

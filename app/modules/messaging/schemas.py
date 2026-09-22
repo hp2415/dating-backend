@@ -38,6 +38,7 @@ class AddMembersRequest(BaseModel):
 class FriendRequestCreate(BaseModel):
     to_user_id: Optional[UUID] = None
     to_uid: Optional[str] = None
+    to_phone: Optional[str] = None
     message: str = Field(default="你好，交个朋友吧", max_length=200)
     source: str = Field(default="uid", max_length=32)
 

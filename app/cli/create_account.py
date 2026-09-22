@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models import User, UserPreference, UserProfile, UserStatus
 from app.modules.auth.service import normalize_phone
+from app.modules.messaging.uid import ensure_public_uid
 from app.shared.db import SessionLocal, engine
 from app.shared.passwords import hash_password
 
@@ -68,8 +69,9 @@ async def _run(args: argparse.Namespace) -> None:
             action = "reset"
         else:
             raise SystemExit(f"手机号 {phone} 已存在。要改密码请加 --reset")
+        await ensure_public_uid(db, user)
         await db.commit()
-        print(f"{action} account phone={phone} user_id={user.id}")
+        print(f"{action} account phone={phone} user_id={user.id} uid={user.public_uid}")
 
     await engine.dispose()
 

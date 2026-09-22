@@ -228,6 +228,7 @@ async def create_friend_request(
         user,
         to_user_id=body.to_user_id,
         to_uid=body.to_uid,
+        to_phone=body.to_phone,
         message=body.message,
         source=body.source,
     )
