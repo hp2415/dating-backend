@@ -18,6 +18,7 @@ Does not run on app startup.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -87,6 +88,17 @@ POSTS: list[dict[str, Any]] = [
 ]
 
 COMPANION_INDEXES = (1, 5, 7)  # 周予 / 赵北 / 韩澈
+
+
+def _idem_key(prefix: str, *parts: str, limit: int = 64) -> str:
+    """Stable key that fits companion_bookings.idempotency_key (varchar 64)."""
+    raw = "-".join(part.replace("-", "") for part in parts)
+    key = f"{prefix}-{raw}"
+    if len(key) <= limit:
+        return key
+    room = limit - len(prefix) - 1
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f"{prefix}-{digest[:room]}"
 
 
 def _sniff(data: bytes) -> tuple[str, str]:
@@ -696,7 +708,9 @@ def _complete_one_booking(base: str, users: list[dict], companion: dict, service
             "POST",
             f"{base}/api/v1/bookings",
             token=buyer["token"],
-            headers={"Idempotency-Key": f"demo-booking-{companion['user_id']}-{buyer['user_id']}"},
+            headers={
+                "Idempotency-Key": _idem_key("demo-bk", companion["user_id"], buyer["user_id"]),
+            },
             body={
                 "companion_id": companion["user_id"],
                 "service_id": service_id,

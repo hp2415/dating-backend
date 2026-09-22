@@ -300,6 +300,8 @@ async def create_booking(
 ):
     if not idempotency_key:
         raise AppError(ErrorCodes.IDEMPOTENCY_REQUIRED, "预约须带 Idempotency-Key", status_code=400)
+    if len(idempotency_key) > 64:
+        raise AppError(ErrorCodes.IDEMPOTENCY_REQUIRED, "Idempotency-Key 最长 64 个字符", status_code=400)
     data = await CompanionServiceLayer(db).create_booking(
         user,
         companion_id=body.companion_id,
