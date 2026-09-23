@@ -16,6 +16,7 @@ from app.models import (
     UserProfile,
     UserStatus,
 )
+from app.modules.media.storage import normalize_stored_media_url
 from app.modules.user.service import calc_age
 from app.shared.config import settings
 from app.shared.errors import AppError
@@ -121,7 +122,7 @@ class DiscoverService:
         if profile and profile.avatar_media_id:
             media = await self.db.get(MediaAsset, profile.avatar_media_id)
             if media and media.audit_status != AuditStatus.REJECTED.value:
-                avatar_url = media.url
+                avatar_url = normalize_stored_media_url(media.url)
         age = calc_age(profile.birthday if profile else None)
         return {
             "id": user.id,

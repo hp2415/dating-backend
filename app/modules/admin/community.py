@@ -15,6 +15,7 @@ from app.models import (
     UserProfile,
 )
 from app.modules.events.service import DomainEventName, DomainEventService
+from app.modules.media.storage import expose_media
 from app.shared.errors import AppError
 from app.shared.pagination import legacy_admin_page
 from app.shared.response import ErrorCodes
@@ -92,7 +93,7 @@ class CommunityAdminService:
             "author_id": post.author_id,
             "author_name": (profile.display_name if profile else None),
             "content": post.content,
-            "media": post.media or [],
+            "media": expose_media(post.media or []),
             "status": post.status,
             "like_count": post.like_count,
             "comment_count": post.comment_count,

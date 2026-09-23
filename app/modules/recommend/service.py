@@ -8,6 +8,7 @@ from sqlalchemy import case, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.media.storage import expose_media, normalize_stored_media_url
 from app.models import (
     Activity,
     ActivityParticipant,
@@ -78,7 +79,7 @@ class RecommendService:
                     tags=tags,
                     capacity=int(activity.capacity or 0),
                     join_count=int(activity.join_count or 0),
-                    media=activity.media or [],
+                    media=expose_media(activity.media or []),
                     joined=bool(brief.get("joined")),
                     start_at=activity.start_at,
                     distance_km=None,
@@ -215,7 +216,7 @@ class RecommendService:
         if profile and profile.avatar_media_id:
             media = await self.db.get(MediaAsset, profile.avatar_media_id)
             if media and media.audit_status != AuditStatus.REJECTED.value:
-                avatar_url = media.url
+                avatar_url = normalize_stored_media_url(media.url)
         return {
             "id": user.id,
             "display_name": (profile.display_name if profile else None) or "用户",

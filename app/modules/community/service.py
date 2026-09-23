@@ -19,6 +19,7 @@ from app.models import (
     UserProfile,
     UserStatus,
 )
+from app.modules.media.storage import expose_media, normalize_stored_media_url
 from app.shared.errors import AppError
 from app.shared.response import ErrorCodes
 
@@ -190,7 +191,7 @@ class CommunityService:
                     {
                         "type": item.type,
                         "media_id": str(media.id),
-                        "url": media.url,
+                        "url": normalize_stored_media_url(media.url),
                         "audit_status": media.audit_status,
                     }
                 )
@@ -199,7 +200,7 @@ class CommunityService:
                     {
                         "type": item.type,
                         "media_id": None,
-                        "url": item.url,
+                        "url": normalize_stored_media_url(item.url),
                         "audit_status": "placeholder",
                     }
                 )
@@ -248,7 +249,7 @@ class CommunityService:
             "id": post.id,
             "author": author,
             "content": post.content,
-            "media": post.media or [],
+            "media": expose_media(post.media or []),
             "status": post.status,
             "like_count": post.like_count,
             "comment_count": post.comment_count,

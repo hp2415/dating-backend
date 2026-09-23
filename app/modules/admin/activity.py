@@ -15,6 +15,7 @@ from app.models import (
     UserProfile,
 )
 from app.modules.events.service import DomainEventName, DomainEventService
+from app.modules.media.storage import expose_media
 from app.shared.errors import AppError
 from app.shared.pagination import legacy_admin_page
 from app.shared.response import ErrorCodes
@@ -91,7 +92,7 @@ class ActivityAdminService:
             "start_at": activity.start_at.isoformat() if activity.start_at else None,
             "capacity": activity.capacity,
             "join_count": activity.join_count,
-            "media": activity.media or [],
+            "media": expose_media(activity.media or []),
             "status": activity.status,
             "admin_note": activity.admin_note,
             "created_at": activity.created_at.isoformat() if activity.created_at else "",

@@ -10,7 +10,7 @@ import logging
 from datetime import timedelta
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from minio import Minio
 
@@ -203,9 +203,8 @@ class OssStorageDriver:
         }
 
     def public_url(self, object_key: str, *, public_base: str) -> str:
-        # Prefer explicit OSS public endpoint; bucket path matches historical MinIO layout.
-        base = (settings.oss_public_endpoint or public_base).rstrip("/")
-        return f"{base}/{settings.oss_bucket}/{safe_object_key(object_key)}"
+        endpoint = (settings.oss_public_endpoint or public_base).rstrip("/")
+        return object_public_url(endpoint, settings.oss_bucket, object_key)
 
     def exists(self, object_key: str) -> bool:
         try:
@@ -223,6 +222,57 @@ class OssStorageDriver:
             self._client().remove_object(settings.oss_bucket, object_key)
         except Exception:  # noqa: BLE001
             logger.exception("OSS delete failed for %s", object_key)
+
+
+def object_public_url(endpoint: str, bucket: str, object_key: str) -> str:
+    """Build a URL clients can GET.
+
+    Aliyun rejects path-style URLs (``https://oss-cn-x.aliyuncs.com/bucket/key``)
+    on current buckets. Those must be virtual-hosted. MinIO keeps path-style.
+    """
+    key = safe_object_key(object_key)
+    raw = (endpoint or "").strip().rstrip("/")
+    scheme = "https" if raw.startswith("https://") else "http"
+    host = raw.split("://", 1)[-1]
+    if host.endswith(".aliyuncs.com"):
+        if host.startswith(f"{bucket}."):
+            return f"{scheme}://{host}/{key}"
+        return f"{scheme}://{bucket}.{host}/{key}"
+    return f"{raw}/{bucket}/{key}"
+
+
+def normalize_stored_media_url(url: str | None, *, bucket: str | None = None) -> str | None:
+    """Rewrite an already-saved path-style Aliyun URL to virtual-hosted form."""
+    if not url:
+        return url
+    name = bucket if bucket is not None else settings.oss_bucket
+    parts = urlsplit(url)
+    host = parts.netloc
+    if not host.endswith(".aliyuncs.com"):
+        return url
+    path = parts.path.lstrip("/")
+    prefix = f"{name}/"
+    if host.startswith(f"{name}."):
+        if not path.startswith(prefix):
+            return url
+        key = path[len(prefix) :]
+        return urlunsplit((parts.scheme or "https", host, f"/{key}", parts.query, ""))
+    if not path.startswith(prefix):
+        return url
+    key = path[len(prefix) :]
+    return urlunsplit((parts.scheme or "https", f"{name}.{host}", f"/{key}", parts.query, ""))
+
+
+def expose_media(items: list | None, *, bucket: str | None = None) -> list:
+    out: list = []
+    for item in items or []:
+        if isinstance(item, dict) and item.get("url"):
+            copied = dict(item)
+            copied["url"] = normalize_stored_media_url(copied["url"], bucket=bucket)
+            out.append(copied)
+        else:
+            out.append(item)
+    return out
 
 
 def get_storage() -> StorageDriver:

@@ -15,6 +15,7 @@ from app.models import (
     UserStatus,
 )
 from app.modules.auth.service import mask_phone
+from app.modules.media.storage import normalize_stored_media_url
 from app.shared.config import settings
 from app.shared.errors import AppError
 from app.shared.response import ErrorCodes
@@ -68,7 +69,7 @@ class UserService:
         if user.profile and user.profile.avatar_media_id:
             media = await self.db.get(MediaAsset, user.profile.avatar_media_id)
             if media and media.audit_status != AuditStatus.REJECTED.value and media.deleted_at is None:
-                avatar_url = media.url
+                avatar_url = normalize_stored_media_url(media.url)
 
         profile = None
         if user.profile:
@@ -127,7 +128,7 @@ class UserService:
                     and media.audit_status == AuditStatus.APPROVED.value
                     and media.deleted_at is None
                 ):
-                    avatar_url = media.url
+                    avatar_url = normalize_stored_media_url(media.url)
 
         from app.modules.trust.service import TrustService
 

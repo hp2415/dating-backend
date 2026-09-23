@@ -24,6 +24,7 @@ from app.models import (
     UserProfile,
     UserStatus,
 )
+from app.modules.media.storage import expose_media, normalize_stored_media_url
 from app.shared.errors import AppError
 from app.shared.response import ErrorCodes
 
@@ -361,7 +362,7 @@ class ActivityService:
                     {
                         "type": item.type,
                         "media_id": str(media.id),
-                        "url": media.url,
+                        "url": normalize_stored_media_url(media.url),
                         "audit_status": media.audit_status,
                     }
                 )
@@ -370,7 +371,7 @@ class ActivityService:
                     {
                         "type": item.type,
                         "media_id": None,
-                        "url": item.url,
+                        "url": normalize_stored_media_url(item.url),
                         "audit_status": "placeholder",
                     }
                 )
@@ -639,7 +640,7 @@ class ActivityService:
             "end_at": activity.end_at.isoformat() if activity.end_at else None,
             "capacity": activity.capacity,
             "join_count": activity.join_count,
-            "media": activity.media or [],
+            "media": expose_media(activity.media or []),
             "fee_type": getattr(activity, "fee_type", None) or FeeType.FREE.value,
             "fee_cents": int(getattr(activity, "fee_cents", 0) or 0),
             "fee_note": getattr(activity, "fee_note", None),

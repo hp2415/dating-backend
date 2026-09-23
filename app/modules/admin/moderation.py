@@ -23,6 +23,7 @@ from app.models import (
     UserProfile,
     UserStatus,
 )
+from app.modules.media.storage import normalize_stored_media_url
 from app.shared.errors import AppError
 from app.shared.pagination import legacy_admin_page
 from app.shared.response import ErrorCodes
@@ -203,7 +204,7 @@ class ModerationService:
                     "owner_id": m.owner_id,
                     "owner_name": owner_name,
                     "media_type": m.media_type,
-                    "url": m.url,
+                    "url": normalize_stored_media_url(m.url),
                     "audit_status": m.audit_status,
                     "created_at": m.created_at.isoformat() if m.created_at else "",
                 }

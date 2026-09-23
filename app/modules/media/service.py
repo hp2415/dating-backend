@@ -10,7 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AuditStatus, MediaAsset, MediaType, ModerationMachineLabel, User, UserProfile
-from app.modules.media.storage import get_storage, safe_object_key, validate_upload_bytes
+from app.modules.media.storage import (
+    get_storage,
+    normalize_stored_media_url,
+    safe_object_key,
+    validate_upload_bytes,
+)
 from app.modules.trust.service import TrustService
 from app.shared.config import settings
 from app.shared.errors import AppError
@@ -142,7 +147,7 @@ class MediaService:
         await self.db.refresh(media)
         return {
             "id": media.id,
-            "url": media.url,
+            "url": normalize_stored_media_url(media.url),
             "media_type": media.media_type,
             "audit_status": media.audit_status,
             "object_key": media.object_key,
@@ -177,7 +182,7 @@ class MediaService:
         items = [
             {
                 "id": m.id,
-                "url": m.url,
+                "url": normalize_stored_media_url(m.url),
                 "media_type": m.media_type,
                 "audit_status": m.audit_status,
                 "object_key": m.object_key,
