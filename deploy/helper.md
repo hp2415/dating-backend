@@ -43,9 +43,11 @@ docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d -
 
 ```bash
 curl -sS http://127.0.0.1:8000/health
-curl -sS http://127.0.0.1/health
+curl -sS https://123.56.118.242/health
 docker ps --format "table {{.Names}}\t{{.Status}}"
 ```
+
+公网 HTTPS（无域名）的申请、续期和 DNS 排障见 [docs/OPS.md](../docs/OPS.md)「公网 HTTPS」。Certbot 容器必须带 `--network host`。
 
 **说明：** API 启动命令里已包含 `alembic upgrade head`，一般**无需单独跑迁移**。
 

@@ -106,19 +106,67 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 
 ### 公网 HTTPS（没有域名）
 
-Let’s Encrypt 可以给公网 IP 签发证书，有效期约 6 天，必须自动续期。API 只监听 `127.0.0.1:8000`，外网只走 Nginx 的 443。`/docs` 在非 development 环境关闭。
+Let’s Encrypt 给公网 IP 签发证书，有效期约 6 天，必须自动续期。API 只监听 `127.0.0.1:8000`，外网只走 Nginx 的 443。`/docs` 在非 development 环境关闭。阿里云安全组放行 **80 和 443**。不要执行 `docker compose down -v`。
 
-阿里云安全组放行 **80 和 443**。先拉代码并重建（证书还没有时 Nginx 起不来，所以先跑脚本生成临时证书）：
+Certbot 用 Docker 跑，不在系统里装包。容器必须加 `--network host`，否则解析不了 `acme-v02.api.letsencrypt.org`。镜像入口已经是 `certbot`，命令从 `certonly` 开始。
+
+在 `/work_place/dating-backend` 执行。
+
+**1. 临时证书，让 Nginx 能启动**
 
 ```bash
-cd /work_place/dating-backend
-git pull
-sudo bash deploy/scripts/enable-https-ip.sh
-docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d --build
-sudo bash deploy/scripts/enable-https-ip.sh
+mkdir -p /etc/letsencrypt/live/public-ip /var/www/certbot/.well-known/acme-challenge
+cat > /tmp/ip-cert.cnf <<'EOF'
+[req]
+distinguished_name = req_dn
+x509_extensions = v3_req
+prompt = no
+[req_dn]
+CN = 123.56.118.242
+[v3_req]
+subjectAltName = IP:123.56.118.242
+EOF
+openssl req -x509 -nodes -newkey rsa:2048 -days 2 \
+  -keyout /etc/letsencrypt/live/public-ip/privkey.pem \
+  -out /etc/letsencrypt/live/public-ip/fullchain.pem \
+  -config /tmp/ip-cert.cnf
+docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d
 ```
 
-脚本用 Docker 跑 Certbot，不在系统里装包（阿里云主机通常没有 apt）。第一次只放一张临时自签证书并退出。第二次在 Nginx 起来之后换成 Let’s Encrypt，并写入每天两次的续期 cron。可选 `CERTBOT_EMAIL=you@example.com`。
+**2. 换成 Let’s Encrypt 证书**
+
+```bash
+docker pull docker.m.daocloud.io/certbot/certbot:latest
+docker run --rm --network host \
+  -v /etc/letsencrypt:/etc/letsencrypt \
+  -v /var/www/certbot:/var/www/certbot \
+  docker.m.daocloud.io/certbot/certbot:latest \
+  certonly --webroot -w /var/www/certbot \
+  --preferred-profile shortlived \
+  --ip-address 123.56.118.242 \
+  --agree-tos --register-unsafely-without-email --non-interactive \
+  --keep-until-expiring
+rm -rf /etc/letsencrypt/live/public-ip
+ln -sfn /etc/letsencrypt/live/123.56.118.242 /etc/letsencrypt/live/public-ip
+docker exec dating-nginx nginx -t
+docker exec dating-nginx nginx -s reload
+curl -fsS https://123.56.118.242/health
+```
+
+宿主机先确认能解析：`getent hosts acme-v02.api.letsencrypt.org`。没有结果时，把 `/etc/resolv.conf` 的 nameserver 改成 `223.5.5.5` 后再跑第 2 步。
+
+**3. 自动续期**（每天 03:17 和 15:17，未到期时 certbot 不会重新签发）
+
+```bash
+cat > /etc/cron.d/dating-certbot <<'EOF'
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+17 3,15 * * * root docker run --rm --network host -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/www/certbot docker.m.daocloud.io/certbot/certbot:latest renew --quiet && docker exec dating-nginx nginx -s reload
+EOF
+chmod 644 /etc/cron.d/dating-certbot
+```
+
+仓库脚本 `deploy/scripts/enable-https-ip.sh` 做的是同一件事。可选 `CERTBOT_EMAIL=you@example.com`。
 
 改密：登录运营后台，右上角账号菜单里「修改密码」。新密码至少 8 位。保存后需要重新登录。种子脚本若仍要登录后台，在服务器上先 `export ADMIN_DEFAULT_PASSWORD='新密码'`。
 
@@ -136,14 +184,15 @@ docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d -
 docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d --build admin
 ```
 
-对外入口（Nginx `:80`）：
+对外入口（Nginx `:443`，`:80` 只留给证书校验并跳转到 HTTPS）：
 
 | 路径 | 去向 |
 |------|------|
 | `/` | 运营后台静态资源 |
-| `/api/` `/admin/` `/docs` `/health` | FastAPI |
+| `/api/` `/admin/` `/health` | FastAPI |
+| `/docs` `/redoc` `/openapi.json` | 关闭 |
 
-Android / iOS 的生产 `API_BASE_URL` 用 `http://<公网IP>/`（末尾斜杠与客户端实现保持一致）。
+Android / iOS 的生产 `API_BASE_URL` 用 `https://123.56.118.242/`（末尾斜杠与客户端实现保持一致）。
 
 排障、备份、端口表见 [deploy/helper.md](../deploy/helper.md)。
 

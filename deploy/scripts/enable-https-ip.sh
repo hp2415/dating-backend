@@ -84,9 +84,11 @@ else
   certbot_args+=(--register-unsafely-without-email)
 fi
 
+# --network host: the bridge DNS on this ECS cannot resolve
+# acme-v02.api.letsencrypt.org. Host network uses the host resolver.
 # The image entrypoint is already certbot. Do not pass a deploy-hook here:
 # it would run inside the container, which cannot see the host Docker socket.
-docker run --rm \
+docker run --rm --network host \
   -v /etc/letsencrypt:/etc/letsencrypt \
   -v /var/www/certbot:/var/www/certbot \
   "$CERTBOT_IMAGE" \
@@ -111,7 +113,7 @@ cat > "$cron_file" <<EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 # IP certificates last about 6 days. certbot renew does nothing until due.
-17 3,15 * * * root docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v ${WEBROOT}:/var/www/certbot ${CERTBOT_IMAGE} renew --quiet && docker exec dating-nginx nginx -s reload
+17 3,15 * * * root docker run --rm --network host -v /etc/letsencrypt:/etc/letsencrypt -v ${WEBROOT}:/var/www/certbot ${CERTBOT_IMAGE} renew --quiet && docker exec dating-nginx nginx -s reload
 EOF
 chmod 644 "$cron_file"
 
