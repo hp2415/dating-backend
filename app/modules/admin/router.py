@@ -13,7 +13,7 @@ from app.modules.admin.moderation import (
     ResolveReportRequest,
     ReviewMediaRequest,
 )
-from app.modules.admin.schemas import AdminLoginRequest
+from app.modules.admin.schemas import AdminLoginRequest, AdminPasswordChangeRequest
 from app.modules.admin.insights import InsightsService
 from app.modules.admin.service import AdminAuthService
 from app.shared.deps import get_db, get_request_id
@@ -30,6 +30,21 @@ async def admin_login(
 ):
     ip = request.client.host if request.client else None
     data = await AdminAuthService(db).login(body.username, body.password, ip=ip)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/auth/password")
+async def admin_change_password(
+    body: AdminPasswordChangeRequest,
+    request: Request,
+    admin: AdminUser = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Logged-in admin changes their own password. Wrong old password is 400, not 401."""
+    ip = request.client.host if request.client else None
+    data = await AdminAuthService(db).change_password(
+        admin, body.old_password, body.new_password, ip=ip
+    )
     return ok(data, request_id=get_request_id(request))
 
 

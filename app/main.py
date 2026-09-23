@@ -72,11 +72,15 @@ async def lifespan(_: FastAPI):
     await engine.dispose()
 
 
+_expose_docs = settings.app_env == "development"
 app = FastAPI(
     title=settings.app_name,
     version="0.9.3",
     default_response_class=ORJSONResponse,
     lifespan=lifespan,
+    docs_url="/docs" if _expose_docs else None,
+    redoc_url="/redoc" if _expose_docs else None,
+    openapi_url="/openapi.json" if _expose_docs else None,
 )
 
 origins = [o.strip() for o in settings.admin_cors_origins.split(",") if o.strip()]

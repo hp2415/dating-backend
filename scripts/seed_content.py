@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,7 +27,7 @@ from urllib.request import Request, urlopen
 SEED_PHONES = [f"1390000880{i}" for i in range(1, 9)]  # 13900008801 .. 13900008808
 SEED_PHONE = SEED_PHONES[0]
 ADMIN_USER = "admin"
-ADMIN_PASS = "Admin@123456"
+ADMIN_PASS = os.environ.get("ADMIN_DEFAULT_PASSWORD", "Admin@123456")
 STATE_PATH = Path(__file__).resolve().parent / ".seed_content_state.json"
 
 WALLET_GRANT_CENTS = 50_000

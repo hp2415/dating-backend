@@ -7,7 +7,7 @@ from app.models import AdminUser
 from app.modules.admin.seed import write_audit
 from app.shared.config import settings
 from app.shared.errors import AppError
-from app.shared.passwords import verify_password
+from app.shared.passwords import hash_password, verify_password
 from app.shared.response import ErrorCodes
 from app.shared.security import create_admin_access_token
 
@@ -142,6 +142,27 @@ class AdminAuthService:
                 "is_active": admin.is_active,
             },
         }
+
+    async def change_password(
+        self, admin: AdminUser, old_password: str, new_password: str, ip: str | None = None
+    ) -> dict:
+        if not verify_password(old_password, admin.password_hash):
+            raise AppError(ErrorCodes.ADMIN_INVALID_CREDENTIALS, "原密码不正确", status_code=400)
+        if old_password == new_password:
+            raise AppError(ErrorCodes.AUTH_INVALID, "新密码不能与原密码相同")
+        admin.password_hash = hash_password(new_password)
+        admin.updated_at = datetime.now(timezone.utc)
+        await self.db.flush()
+        await write_audit(
+            self.db,
+            admin_id=admin.id,
+            action="admin_password_changed",
+            target_type="admin_user",
+            target_id=str(admin.id),
+            detail={"username": admin.username},
+            ip=ip,
+        )
+        return {"changed": True}
 
     async def me(self, admin: AdminUser) -> dict:
         return {

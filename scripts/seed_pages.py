@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -27,7 +28,7 @@ from urllib.request import Request, urlopen
 
 PHONES = [f"139000077{i:02d}" for i in range(1, 11)]
 ADMIN_USER = "admin"
-ADMIN_PASS = "Admin@123456"
+ADMIN_PASS = os.environ.get("ADMIN_DEFAULT_PASSWORD", "Admin@123456")
 SMS_CODE = "123456"
 MARKER = "DEMO·评"
 

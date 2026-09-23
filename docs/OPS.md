@@ -100,9 +100,29 @@ docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d -
 
 ```bash
 curl -sS http://127.0.0.1:8000/health
-curl -sS http://127.0.0.1/health
+curl -sS https://123.56.118.242/health
 docker ps --format "table {{.Names}}\t{{.Status}}"
 ```
+
+### 公网 HTTPS（没有域名）
+
+Let’s Encrypt 可以给公网 IP 签发证书，有效期约 6 天，必须自动续期。API 只监听 `127.0.0.1:8000`，外网只走 Nginx 的 443。`/docs` 在非 development 环境关闭。
+
+阿里云安全组放行 **80 和 443**。先拉代码并重建（证书还没有时 Nginx 起不来，所以先跑脚本生成临时证书）：
+
+```bash
+cd /work_place/dating-backend
+git pull
+sudo bash deploy/scripts/enable-https-ip.sh
+docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d --build
+sudo bash deploy/scripts/enable-https-ip.sh
+```
+
+第一次脚本只放一张临时自签证书并退出。第二次在 Nginx 起来之后换成 Let’s Encrypt，并写入每天两次的续期 cron。可选 `CERTBOT_EMAIL=you@example.com`。
+
+改密：登录运营后台，右上角账号菜单里「修改密码」。新密码至少 8 位。保存后需要重新登录。种子脚本若仍要登录后台，在服务器上先 `export ADMIN_DEFAULT_PASSWORD='新密码'`。
+
+Android 正式包的接口地址改为 `https://123.56.118.242/`。证书生效后再打 release 包，旧的 HTTP 包会被 301 打断。
 
 只更 Python：
 
