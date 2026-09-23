@@ -118,7 +118,7 @@ docker compose -p dating-app -f deploy/compose.app.yml --env-file ./.env up -d -
 sudo bash deploy/scripts/enable-https-ip.sh
 ```
 
-第一次脚本只放一张临时自签证书并退出。第二次在 Nginx 起来之后换成 Let’s Encrypt，并写入每天两次的续期 cron。可选 `CERTBOT_EMAIL=you@example.com`。
+脚本用 Docker 跑 Certbot，不在系统里装包（阿里云主机通常没有 apt）。第一次只放一张临时自签证书并退出。第二次在 Nginx 起来之后换成 Let’s Encrypt，并写入每天两次的续期 cron。可选 `CERTBOT_EMAIL=you@example.com`。
 
 改密：登录运营后台，右上角账号菜单里「修改密码」。新密码至少 8 位。保存后需要重新登录。种子脚本若仍要登录后台，在服务器上先 `export ADMIN_DEFAULT_PASSWORD='新密码'`。
 
