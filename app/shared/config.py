@@ -69,7 +69,8 @@ class Settings(BaseSettings):
     tencent_im_admin_user: str = "administrator"
     tencent_im_usersig_expire_seconds: int = 604800  # 7 days
 
-    # M3 foundation
+    # empty = json outside development, text in development
+    log_format: str = ""
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
     rate_limit_per_minute: int = 300

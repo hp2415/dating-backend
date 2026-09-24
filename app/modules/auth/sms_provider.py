@@ -27,7 +27,10 @@ class LogSmsProvider(SmsProvider):
 
     async def send_code(self, phone: str, code: str, *, scene: str = "login") -> dict[str, Any]:
         masked = phone[:3] + "****" + phone[-4:] if len(phone) >= 7 else phone
-        logger.info("SMS[%s] provider=log phone=%s code=%s", scene, masked, code)
+        if settings.app_env == "development":
+            logger.info("SMS[%s] provider=log phone=%s code=%s", scene, masked, code)
+        else:
+            logger.info("SMS[%s] provider=log phone=%s", scene, masked)
         return {
             "provider": self.name,
             "provider_msg_id": f"log-{uuid4().hex[:12]}",

@@ -196,6 +196,8 @@ Android / iOS 的生产 `API_BASE_URL` 用 `https://123.56.118.242/`（末尾斜
 
 排障、备份、端口表见 [deploy/helper.md](../deploy/helper.md)。
 
+日志留在容器标准输出里，每条请求一行（方法、路径、状态码、耗时、`request_id`）。`/health` 不记。服务器上是 JSON，本机 development 是普通文本。Nginx 把同一个 `request_id` 传给 API。每个容器最多保留 5 个 20MB 文件。业务流水仍在库里：`admin_audit_logs`、`sms_send_logs`、`analytics_events`。不在这台机器上再跑一套 Loki 或 Elasticsearch。以后要按天检索，把这四份标准输出接到阿里云日志服务即可，格式不用再改。
+
 ## 5. 和别的仓怎么连
 
 - 新客户端字段：先在本仓 schema + 迁移，再改 Android / iOS。

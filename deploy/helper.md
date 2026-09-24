@@ -141,11 +141,12 @@ docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 curl -sS http://127.0.0.1:8000/health | python3 -m json.tool
 curl -sS http://127.0.0.1/health
 
-# 最近日志
+# 最近日志。API 与 Nginx 的 request_id 相同，可对上一次失败请求。
 docker logs dating-api --tail 100 -f
-docker logs dating-worker --tail 50
 docker logs dating-nginx --tail 50
+docker logs dating-worker --tail 50
 docker logs dating-admin --tail 50
+docker logs dating-api --since 30m 2>&1 | grep '"status": 500'
 
 # 旧库日志（一般不用动）
 docker logs wp_postgres --tail 30

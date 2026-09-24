@@ -40,7 +40,14 @@ async def startup(ctx: dict) -> None:
 
     ctx["db_factory"] = SessionLocal
     ctx["engine"] = engine
-    logger.info("ARQ worker started env=%s redis=%s", settings.app_env, settings.redis_url)
+    redis = _redis_settings()
+    logger.info(
+        "ARQ worker started env=%s redis=%s:%s/%s",
+        settings.app_env,
+        redis.host,
+        redis.port,
+        redis.database,
+    )
 
 
 async def shutdown(ctx: dict) -> None:
