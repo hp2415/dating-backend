@@ -96,6 +96,14 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 - 脚本：`scripts/seed_content.py`（见 [docs/DEMO_SEED.md](./docs/DEMO_SEED.md)）
 - 当前版本：`0.9.3`
 
+## 资料扩展与关注（0018）
+
+- `user_profiles` 新增可空：`height_cm` · `weight_kg` · `occupation` · `meet_radius` · `mbti` · `zodiac`（取值同 iOS 枚举 raw value）
+- `PUT /me/profile`：省略字段保持原值；旧字段传 `null` 忽略；上述新字段传 `null` 清空
+- `GET /me` / `GET /users/{id}` profile 带上述字段；`GET /users/{id}` 另带 `following_count` · `followers_count` · `is_following`
+- 关注：`POST/DELETE /users/{id}/follow` · `GET /me/following|followers`（`items[].is_mutual`，`page_info`）
+- 迁移：`0018_profile_extras_follows`；冒烟：`scripts/smoke_profile_social.ps1`；单测：`tests/test_profile_social.py`
+
 本地若从旧 `postgres:16-alpine` 升级，需重建数据卷一次（仅开发环境）：
 
 ```bash

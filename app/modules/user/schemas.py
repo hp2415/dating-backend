@@ -1,8 +1,24 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+Occupation = Literal["学生", "上班", "自由职业", "其他"]
+MeetRadius = Literal["同城见面", "可跨城", "仅线上先聊"]
+Mbti = Literal[
+    "INTJ", "INTP", "ENTJ", "ENTP",
+    "INFJ", "INFP", "ENFJ", "ENFP",
+    "ISTJ", "ISFJ", "ESTJ", "ESFJ",
+    "ISTP", "ISFP", "ESTP", "ESFP",
+]
+Zodiac = Literal[
+    "摩羯座", "水瓶座", "双鱼座", "白羊座", "金牛座", "双子座",
+    "巨蟹座", "狮子座", "处女座", "天秤座", "天蝎座", "射手座",
+]
+
+# Explicit null clears these; legacy fields keep ignoring null.
+PROFILE_EXTRA_KEYS = ("height_cm", "weight_kg", "occupation", "meet_radius", "mbti", "zodiac")
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -13,6 +29,12 @@ class ProfileUpdateRequest(BaseModel):
     bio: Optional[str] = Field(default=None, max_length=500)
     tags: Optional[list[str]] = None
     avatar_media_id: Optional[UUID] = None
+    height_cm: Optional[int] = Field(default=None, ge=100, le=250)
+    weight_kg: Optional[int] = Field(default=None, ge=30, le=250)
+    occupation: Optional[Occupation] = None
+    meet_radius: Optional[MeetRadius] = None
+    mbti: Optional[Mbti] = None
+    zodiac: Optional[Zodiac] = None
 
 
 class PreferenceUpdateRequest(BaseModel):

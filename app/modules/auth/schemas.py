@@ -56,6 +56,12 @@ class ProfileOut(BaseModel):
     tags: list[str] = []
     avatar_url: Optional[str] = None
     completion_score: int = 0
+    height_cm: Optional[int] = None
+    weight_kg: Optional[int] = None
+    occupation: Optional[str] = None
+    meet_radius: Optional[str] = None
+    mbti: Optional[str] = None
+    zodiac: Optional[str] = None
 
 
 class PreferenceOut(BaseModel):

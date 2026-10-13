@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
@@ -80,6 +80,52 @@ async def get_public_user(
 ):
     data = await UserService(db).get_public_profile(user, user_id)
     await db.commit()
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/users/{user_id}/follow")
+async def follow_user(
+    user_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await UserService(db).follow(user, user_id)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.delete("/users/{user_id}/follow")
+async def unfollow_user(
+    user_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await UserService(db).unfollow(user, user_id)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/me/following")
+async def list_following(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await UserService(db).list_follows(user, "following", limit, offset)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/me/followers")
+async def list_followers(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await UserService(db).list_follows(user, "followers", limit, offset)
     return ok(data, request_id=get_request_id(request))
 
 

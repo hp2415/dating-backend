@@ -84,11 +84,31 @@ class UserProfile(Base):
     tags: Mapped[list] = mapped_column(ARRAY(String), default=list, nullable=False)
     avatar_media_id: Mapped[Optional[PyUUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     completion_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    height_cm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    weight_kg: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    occupation: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    meet_radius: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    mbti: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
+    zodiac: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     user: Mapped["User"] = relationship(back_populates="profile")
+
+
+class UserFollow(Base):
+    __tablename__ = "user_follows"
+    __table_args__ = (UniqueConstraint("follower_id", "followee_id", name="uq_user_follows_pair"),)
+
+    id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    follower_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    followee_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class UserPreference(Base):
