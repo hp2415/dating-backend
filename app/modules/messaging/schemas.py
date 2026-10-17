@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -66,3 +67,14 @@ class CallCreateRequest(BaseModel):
     conversation_id: UUID
     callee_id: UUID
     kind: str = Field(default="voice")
+
+
+class MessageRecallRequest(BaseModel):
+    message_id: str = Field(min_length=1, max_length=64)
+    sent_at: Optional[datetime] = None
+
+
+class MessageEditRequest(BaseModel):
+    message_id: str = Field(min_length=1, max_length=64)
+    body: str = Field(min_length=1, max_length=2000)
+    sent_at: Optional[datetime] = None

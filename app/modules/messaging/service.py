@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.models import (
     Activity,
     CallSession,
+    ChatMessageEvent,
     CallStatus,
     ChatTransfer,
     ChatTransferStatus,
@@ -245,18 +246,143 @@ class MessagingService:
         conv = await self.get_conversation(user.id, conversation_id)
         target = target_user_id or user.id
         me = await self._active_member(conversation_id, user.id)
-        assert me is not None
+        if me is None:
+            raise AppError(ErrorCodes.CHAT_FORBIDDEN, "你不在该会话中", status_code=403)
+        if conv.kind == ConversationKind.DIRECT.value:
+            raise AppError(ErrorCodes.CHAT_INVALID, "单聊不能退出，可删除会话")
         if target != user.id:
             if me.role not in {MemberRole.OWNER.value, MemberRole.ADMIN.value}:
                 raise AppError(ErrorCodes.CHAT_FORBIDDEN, "无权移除成员", status_code=403)
+            victim = await self._active_member(conversation_id, target)
+            if victim is not None and victim.role == MemberRole.OWNER.value:
+                raise AppError(ErrorCodes.CHAT_FORBIDDEN, "不能移除群主", status_code=403)
+            if victim is not None and victim.role == MemberRole.ADMIN.value and me.role != MemberRole.OWNER.value:
+                raise AppError(ErrorCodes.CHAT_FORBIDDEN, "仅群主可移除管理员", status_code=403)
             status = MemberStatus.KICKED.value
         else:
             status = MemberStatus.LEFT.value
+            if conv.kind == ConversationKind.ACTIVITY.value and conv.owner_id == user.id:
+                raise AppError(ErrorCodes.CHAT_FORBIDDEN, "活动发起人不能退出活动群，如需结束请取消活动")
+            if conv.kind == ConversationKind.CIRCLE.value and conv.related_circle_id:
+                # 俱乐部群聊：退出群聊即退出俱乐部，统一走俱乐部流程
+                from app.modules.clubs.service import ClubService
+
+                await ClubService(self.db).leave(user, conv.related_circle_id)
+                return await self.conversation_brief(conv, viewer_id=user.id)
         member = await self._active_member(conversation_id, target)
         if member:
             member.status = status
         await self.db.flush()
+        if status == MemberStatus.LEFT.value and me.role == MemberRole.OWNER.value:
+            await self._reassign_owner_or_dissolve(conv, leaving=user.id)
         return await self.conversation_brief(conv, viewer_id=user.id)
+
+    async def _reassign_owner_or_dissolve(self, conv: Conversation, *, leaving: UUID) -> None:
+        rows = (
+            await self.db.execute(
+                select(ConversationMember)
+                .where(
+                    ConversationMember.conversation_id == conv.id,
+                    ConversationMember.status == MemberStatus.ACTIVE.value,
+                    ConversationMember.user_id != leaving,
+                )
+                .order_by(ConversationMember.joined_at.asc())
+            )
+        ).scalars().all()
+        if not rows:
+            conv.status = ConversationStatus.DISSOLVED.value
+        else:
+            heir = next((m for m in rows if m.role == MemberRole.ADMIN.value), rows[0])
+            heir.role = MemberRole.OWNER.value
+            conv.owner_id = heir.user_id
+        await self.db.flush()
+
+    async def dissolve(self, user: User, conversation_id: UUID) -> dict:
+        """群主解散群聊（仅普通群；活动群随活动、俱乐部群随俱乐部）。"""
+        conv = await self.get_conversation(user.id, conversation_id)
+        if conv.kind != ConversationKind.GROUP.value:
+            raise AppError(ErrorCodes.CHAT_INVALID, "该会话类型不支持解散")
+        me = await self._active_member(conversation_id, user.id)
+        if me is None or me.role != MemberRole.OWNER.value:
+            raise AppError(ErrorCodes.CHAT_FORBIDDEN, "仅群主可解散群聊", status_code=403)
+        conv.status = ConversationStatus.DISSOLVED.value
+        members = (
+            await self.db.execute(
+                select(ConversationMember).where(
+                    ConversationMember.conversation_id == conversation_id,
+                    ConversationMember.status == MemberStatus.ACTIVE.value,
+                )
+            )
+        ).scalars().all()
+        for m in members:
+            m.status = MemberStatus.LEFT.value
+        await self.db.flush()
+        return {"dissolved": True, "conversation_id": str(conversation_id)}
+
+    async def clear_history(self, user: User, conversation_id: UUID) -> dict:
+        """清空聊天记录：只对自己生效，多端按 cleared_at 水位线过滤。"""
+        await self.get_conversation(user.id, conversation_id)
+        member = await self._active_member(conversation_id, user.id)
+        if member is None:
+            raise AppError(ErrorCodes.CHAT_FORBIDDEN, "你不在该会话中", status_code=403)
+        now = datetime.now(timezone.utc)
+        member.cleared_at = now
+        member.unread_count = 0
+        member.last_read_at = now
+        await self.db.flush()
+        return {"conversation_id": str(conversation_id), "cleared_at": now.isoformat()}
+
+    RECALL_WINDOW = timedelta(minutes=2)
+    EDIT_WINDOW = timedelta(minutes=15)
+
+    async def record_message_event(
+        self,
+        user: User,
+        conversation_id: UUID,
+        *,
+        kind: str,
+        message_id: str,
+        sent_at: datetime | None,
+        body: str | None = None,
+    ) -> dict:
+        """撤回/编辑审计。消息正文在 IM 侧，这里只校验成员与时间窗并留痕，供运营追溯。"""
+        await self.get_conversation(user.id, conversation_id)
+        if await self._active_member(conversation_id, user.id) is None:
+            raise AppError(ErrorCodes.CHAT_FORBIDDEN, "你不在该会话中", status_code=403)
+        window = self.RECALL_WINDOW if kind == "recall" else self.EDIT_WINDOW
+        now = datetime.now(timezone.utc)
+        if sent_at is not None:
+            if sent_at.tzinfo is None:
+                sent_at = sent_at.replace(tzinfo=timezone.utc)
+            if now - sent_at > window + timedelta(seconds=30):  # 30s clock-skew tolerance
+                raise AppError(
+                    ErrorCodes.CHAT_INVALID,
+                    "已超过可撤回时间" if kind == "recall" else "已超过可编辑时间",
+                )
+        if kind == "edit":
+            if not (body or "").strip():
+                raise AppError(ErrorCodes.CHAT_INVALID, "消息内容不能为空")
+            from app.modules.safety.content_safety import guard_text
+
+            await guard_text(self.db, body, scene="chat_edit")
+        row = ChatMessageEvent(
+            id=uuid4(),
+            conversation_id=conversation_id,
+            message_id=message_id[:64],
+            actor_id=user.id,
+            kind=kind,
+            sent_at=sent_at,
+            body_preview=(body or "")[:240] or None,
+        )
+        self.db.add(row)
+        await self.db.flush()
+        return {
+            "id": str(row.id),
+            "conversation_id": str(conversation_id),
+            "message_id": row.message_id,
+            "kind": kind,
+            "created_at": row.created_at.isoformat() if row.created_at else now.isoformat(),
+        }
 
     async def ensure_activity_group(self, activity: Activity, user_id: UUID) -> Conversation:
         result = await self.db.execute(
@@ -653,6 +779,7 @@ class MessagingService:
             "muted": bool(member.muted) if member else False,
             "pinned": bool(member.pinned) if member else False,
             "unread_count": int(member.unread_count) if member else 0,
+            "cleared_at": member.cleared_at.isoformat() if member and member.cleared_at else None,
             "my_role": member.role if member else None,
             "im_ready": bool(im_status().get("ready")),
         }

@@ -35,11 +35,16 @@ FastAPI 模块化单体。客户端与运营后台的 **唯一 HTTP 合同**。
 - 运营发放余额：`POST /admin/v1/wallet/grant`（`order:write`，`WalletService.credit`；演示种子仅在余额为 0 时发放）
 - 冒烟：`scripts/smoke_m4.ps1`
 
-## 行为埋点与日指标（已落地）
+## 行为埋点与数据分析（v2，详见 `docs/ANALYTICS_EVENTS.md`）
 
-- 表：`analytics_events`（分区）· `analytics_event_dedupe` · `metrics_daily`
-- 客户端：`POST /api/v1/analytics/events`（批量上报，按 `event_id` 去重）
-- 运营：`/admin/v1/metrics/overview|funnel|retention` · `POST /admin/v1/metrics/rebuild`（`dashboard:read`）
+- 表：`analytics_events`（月分区）· `analytics_event_dedupe` · `analytics_devices` · `analytics_daily_event|object|funnel|perf` · `metrics_daily`（迁移 0022）
+- 事件目录：`app/modules/analytics/taxonomy.py` 是唯一来源；改完跑 `scripts/gen_analytics_catalog.py`（文档）与 `--kotlin`（Android 常量）
+- 客户端：`GET /api/v1/analytics/config` · `POST /api/v1/analytics/events`（逐条校验、`event_id` 幂等、时钟校正、PII 兜底）· `DELETE /api/v1/analytics/me`
+- 聚合：夜间任务 `AnalyticsAggregator.rebuild_day`；保留策略 `partitions.enforce_retention`
+- 运营：`/admin/v1/analytics/overview|catalog|funnel|usage|pages|objects|perf|errors`（`analytics:read`）· `events`（`analytics:events`，脱敏、必带过滤、审计）· `events/export`（`analytics:export`，需 reason，审计）· `rebuild`（`analytics:rebuild`）
+- 旧：`/admin/v1/metrics/overview|funnel|retention`（`dashboard:read`）
+- 账号与角色：`/admin/v1/roles` · `/admin/v1/admins`（`admin:manage`）；审计日志 `/admin/v1/audit-logs` 需 `audit:read`
+- 上线就绪：`GET /admin/v1/system/providers`（各第三方通道状态与上线检查，`config:read`），清单见 `docs/LAUNCH_BLOCKERS.md`
 - 领域事件 → 站内通知：`app/modules/events/dispatch.py`（好友申请、审核结果、预约等）
 
 ## M5 消息关系（已落地 · 云 IM 为 noop stub）

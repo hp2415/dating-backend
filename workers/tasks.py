@@ -67,14 +67,14 @@ async def remind_upcoming_activities_stub(ctx: dict[str, Any]) -> str:
 async def maintain_analytics_partitions(ctx: dict[str, Any]) -> dict[str, list[str]]:
     factory = ctx["db_factory"]
     async with factory() as session:
-        from app.modules.analytics.partitions import drop_expired_partitions, ensure_future_partitions
+        from app.modules.analytics.partitions import enforce_retention, ensure_future_partitions
 
         created = await ensure_future_partitions(session, months_ahead=3)
-        dropped = await drop_expired_partitions(session, keep_days=90)
+        result = await enforce_retention(session)
         await session.commit()
-    if dropped:
-        logger.info("analytics partitions dropped=%s", dropped)
-    return {"ensured": created, "dropped": dropped}
+    if result["dropped_partitions"] or result["deleted_rows"]:
+        logger.info("analytics retention %s", result)
+    return {"ensured": created, "dropped": result["dropped_partitions"], **result}
 
 
 async def materialize_dashboard_stub(ctx: dict[str, Any]) -> str:
@@ -86,10 +86,13 @@ async def materialize_dashboard_stub(ctx: dict[str, Any]) -> str:
     from app.shared.db import SessionLocal
 
     day = (datetime.now(ZoneInfo("Asia/Shanghai")) - timedelta(days=1)).date()
+    from app.modules.analytics.aggregate import AnalyticsAggregator
+
     async with SessionLocal() as session:
         await MetricsService(session).rebuild_day(day)
+        await AnalyticsAggregator(session).rebuild_day(day)
         await session.commit()
-    logger.info("metrics_daily rebuilt day=%s", day.isoformat())
+    logger.info("metrics_daily + analytics aggregates rebuilt day=%s", day.isoformat())
     return day.isoformat()
 
 

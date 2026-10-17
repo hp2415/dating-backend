@@ -14,6 +14,8 @@ from app.modules.messaging.schemas import (
     FriendRequestCreate,
     FriendRequestRespond,
     FriendUpdateRequest,
+    MessageEditRequest,
+    MessageRecallRequest,
     MessageRequestRespond,
     OpenDirectRequest,
     TransferCreateRequest,
@@ -163,6 +165,60 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
 ):
     data = await MessagingService(db).leave_or_kick(user, conversation_id, target_user_id=member_user_id)
+    await db.commit()
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/api/v1/conversations/{conversation_id}/clear")
+async def clear_conversation(
+    conversation_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await MessagingService(db).clear_history(user, conversation_id)
+    await db.commit()
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/api/v1/conversations/{conversation_id}/dissolve")
+async def dissolve_conversation(
+    conversation_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await MessagingService(db).dissolve(user, conversation_id)
+    await db.commit()
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/api/v1/conversations/{conversation_id}/messages/recall")
+async def recall_message(
+    conversation_id: UUID,
+    body: MessageRecallRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await MessagingService(db).record_message_event(
+        user, conversation_id, kind="recall", message_id=body.message_id, sent_at=body.sent_at
+    )
+    await db.commit()
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/api/v1/conversations/{conversation_id}/messages/edit")
+async def edit_message(
+    conversation_id: UUID,
+    body: MessageEditRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await MessagingService(db).record_message_event(
+        user, conversation_id, kind="edit", message_id=body.message_id, sent_at=body.sent_at, body=body.body
+    )
     await db.commit()
     return ok(data, request_id=get_request_id(request))
 

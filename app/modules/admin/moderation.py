@@ -103,11 +103,13 @@ class ModerationService:
             "notice": "找搭子：活动审核已接入；社区动态并入活动评论",
         }
 
-    async def list_reports(self, status: str | None, limit: int, offset: int) -> dict:
+    async def list_reports(self, status: str | None, limit: int, offset: int, target_kind: str | None = None) -> dict:
         status = status or ReportStatus.PENDING.value
         stmt = select(Report).order_by(Report.created_at.desc()).offset(offset).limit(limit)
         if status != "all":
             stmt = stmt.where(Report.status == status)
+        if target_kind:
+            stmt = stmt.where(Report.target_kind == target_kind)
         result = await self.db.execute(stmt)
         rows = list(result.scalars().all())
         items = []
@@ -116,6 +118,8 @@ class ModerationService:
         count_stmt = select(func.count()).select_from(Report)
         if status != "all":
             count_stmt = count_stmt.where(Report.status == status)
+        if target_kind:
+            count_stmt = count_stmt.where(Report.target_kind == target_kind)
         total = int(await self.db.scalar(count_stmt) or 0)
         return legacy_admin_page(items, total=total, limit=limit, offset=offset)
 
@@ -130,9 +134,11 @@ class ModerationService:
         if report.status != ReportStatus.PENDING.value:
             raise AppError(ErrorCodes.MODERATION_INVALID, "工单已处理", status_code=409)
 
-        target = await self.db.get(User, report.target_user_id)
-        if target is None:
-            raise AppError(ErrorCodes.USER_NOT_FOUND, "被举报用户不存在", status_code=404)
+        target = await self.db.get(User, report.target_user_id) if report.target_user_id else None
+        if body.resolution in (ReportResolution.LIMIT.value, ReportResolution.BAN.value) and target is None:
+            raise AppError(ErrorCodes.USER_NOT_FOUND, "该举报没有可处罚的责任用户", status_code=400)
+        if body.resolution == ReportResolution.TAKEDOWN.value:
+            await self._takedown(report)
 
         now = datetime.now(timezone.utc)
         if body.resolution == ReportResolution.DISMISS.value:
@@ -145,10 +151,10 @@ class ModerationService:
         report.resolved_at = now
         report.admin_note = body.admin_note
 
-        if body.resolution == ReportResolution.LIMIT.value:
+        if body.resolution == ReportResolution.LIMIT.value and target is not None:
             target.status = UserStatus.LIMITED.value
             target.discoverable = False
-        elif body.resolution == ReportResolution.BAN.value:
+        elif body.resolution == ReportResolution.BAN.value and target is not None:
             target.status = UserStatus.BANNED.value
             target.discoverable = False
 
@@ -161,7 +167,9 @@ class ModerationService:
                 target_id=str(report.id),
                 detail={
                     "resolution": body.resolution,
-                    "target_user_id": str(report.target_user_id),
+                    "target_user_id": str(report.target_user_id) if report.target_user_id else None,
+                    "target_kind": report.target_kind,
+                    "target_id": report.target_id,
                     "admin_note": body.admin_note,
                 },
             )
@@ -172,7 +180,9 @@ class ModerationService:
             aggregate_id=report.id,
             payload={
                 "resolution": body.resolution,
-                "target_user_id": str(report.target_user_id),
+                "target_user_id": str(report.target_user_id) if report.target_user_id else None,
+                "target_kind": report.target_kind,
+                "target_id": report.target_id,
                 "admin_id": str(admin.id),
             },
         )
@@ -252,11 +262,34 @@ class ModerationService:
             "action": body.action,
         }
 
+    async def _takedown(self, report: Report) -> None:
+        """下架被举报内容：动态→deleted、俱乐部/工会→hidden；其他类型请走对应后台。"""
+        from app.models import Club, ClubStatus, Guild, GuildStatus
+
+        try:
+            tid = UUID(report.target_id or "")
+        except ValueError as exc:
+            raise AppError(ErrorCodes.MODERATION_INVALID, "举报对象 ID 无效，无法下架") from exc
+        if report.target_kind == "post":
+            post = await self.db.get(CommunityPost, tid)
+            if post is not None:
+                post.status = PostStatus.DELETED.value
+        elif report.target_kind == "club":
+            club = await self.db.get(Club, tid)
+            if club is not None:
+                club.status = ClubStatus.HIDDEN.value
+        elif report.target_kind == "guild":
+            guild = await self.db.get(Guild, tid)
+            if guild is not None:
+                guild.status = GuildStatus.HIDDEN.value
+        else:
+            raise AppError(ErrorCodes.MODERATION_INVALID, "该类型内容不支持直接下架，请到对应管理页处理")
+
     async def _report_brief(self, report: Report) -> dict:
         reporter_name = None
         target_name = None
         reporter_profile = await self.db.get(UserProfile, report.reporter_id)
-        target_profile = await self.db.get(UserProfile, report.target_user_id)
+        target_profile = await self.db.get(UserProfile, report.target_user_id) if report.target_user_id else None
         if reporter_profile:
             reporter_name = reporter_profile.display_name
         if target_profile:
@@ -267,6 +300,10 @@ class ModerationService:
             "reporter_name": reporter_name,
             "target_user_id": report.target_user_id,
             "target_name": target_name,
+            "target_kind": report.target_kind,
+            "target_id": report.target_id,
+            "target_title": (report.snapshot or {}).get("title", ""),
+            "target_exists": (report.snapshot or {}).get("exists"),
             "reason": report.reason,
             "detail": report.detail,
             "status": report.status,

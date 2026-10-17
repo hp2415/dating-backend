@@ -19,7 +19,9 @@ from app.modules.commerce.service import CommerceService
 from app.modules.commerce.wallet import WalletService
 from app.shared.deps import get_current_user, get_db, get_request_id
 from app.shared.pagination import page_offset
-from app.shared.response import ok
+from app.shared.config import settings
+from app.shared.errors import AppError
+from app.shared.response import ErrorCodes, ok
 
 router = APIRouter(tags=["commerce"])
 internal_router = APIRouter(prefix="/internal/pay", tags=["internal-pay"])
@@ -312,6 +314,9 @@ async def payment_notify(
     db: AsyncSession = Depends(get_db),
 ):
     """Stub / future real callback. No auth — signature check inside provider."""
+    if settings.app_env == "production" and (settings.payment_provider or "stub") == "stub":
+        # The stub verifier trusts any payload: never expose it on a production deployment.
+        raise AppError(ErrorCodes.PAYMENT_INVALID, "演示支付回调在生产环境已禁用", status_code=403)
     data = await CommerceService(db).handle_notify(
         provider,
         {

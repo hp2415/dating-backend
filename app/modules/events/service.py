@@ -21,6 +21,7 @@ class DomainEventName:
     ACTIVITY_CANCELLED = "activity.cancelled"
     ACTIVITY_UPDATED = "activity.updated"
     ACTIVITY_REVIEWED = "activity.reviewed"
+    ACTIVITY_WAITLIST_PROMOTED = "activity.waitlist_promoted"
     COMMUNITY_POST_PUBLISHED = "community.post_published"
     COMMUNITY_POST_REVIEWED = "community.post_reviewed"
     USER_BLOCKED = "user.blocked"

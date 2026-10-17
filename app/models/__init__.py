@@ -99,6 +99,18 @@ from app.models.entities import (
     WalletLedger,
     WalletLedgerKind,
 )
+from app.models.orgs import (
+    ActivityJourney,
+    ChatMessageEvent,
+    Club,
+    ClubMember,
+    ClubMemberRole,
+    ClubMemberStatus,
+    ClubStatus,
+    Guild,
+    GuildFollow,
+    GuildStatus,
+)
 from app.models.ops import (
     Announcement,
     AnnouncementStatus,
@@ -140,6 +152,16 @@ from app.models.trust import (
 )
 
 __all__ = [
+    "ActivityJourney",
+    "ChatMessageEvent",
+    "Club",
+    "ClubMember",
+    "ClubMemberRole",
+    "ClubMemberStatus",
+    "ClubStatus",
+    "Guild",
+    "GuildFollow",
+    "GuildStatus",
     "Activity",
     "ActivityComment",
     "ActivityDetail",

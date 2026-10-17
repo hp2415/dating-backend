@@ -34,6 +34,35 @@ async def ensure_future_partitions(db: AsyncSession, *, months_ahead: int = 3) -
     return created
 
 
+async def enforce_retention(db: AsyncSession, *, keep_days: int | None = None, ip_hash_days: int | None = None) -> dict:
+    """Retention policy: drop whole expired partitions, delete the boundary rows, null old ip_hash.
+
+    Daily aggregate tables are PII-free and kept indefinitely.
+    """
+    from app.shared.config import settings
+
+    keep = keep_days if keep_days is not None else settings.analytics_retention_days
+    ip_days = ip_hash_days if ip_hash_days is not None else settings.analytics_ip_hash_days
+    dropped = await drop_expired_partitions(db, keep_days=keep)
+    deleted = await db.execute(
+        text("DELETE FROM analytics_events WHERE received_at < now() - make_interval(days => :d)"),
+        {"d": keep},
+    )
+    nulled = await db.execute(
+        text(
+            "UPDATE analytics_events SET ip_hash = NULL "
+            "WHERE ip_hash IS NOT NULL AND received_at < now() - make_interval(days => :d) "
+            "AND received_at >= now() - make_interval(days => :d + 14)"
+        ),
+        {"d": ip_days},
+    )
+    await db.execute(
+        text("DELETE FROM analytics_devices WHERE last_seen_at < now() - make_interval(days => :d)"),
+        {"d": keep * 2},
+    )
+    return {"dropped_partitions": dropped, "deleted_rows": deleted.rowcount or 0, "ip_hash_nulled": nulled.rowcount or 0}
+
+
 async def drop_expired_partitions(db: AsyncSession, *, keep_days: int = 90) -> list[str]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
     rows = await db.execute(

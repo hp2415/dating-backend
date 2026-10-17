@@ -44,6 +44,52 @@ class Settings(BaseSettings):
     sms_access_key_id: str = ""
     sms_access_key_secret: str = ""
 
+    # Content safety (text): local word list by default; aliyun|tencent are stubs until credentials exist
+    content_safety_provider: str = "local"
+
+    # Push (app notifications): log = write in-app notification only, no vendor push.
+    # fcm | hms | mipush | oppo | vivo | apns → vendor adapters are placeholders (see ops/push_provider.py).
+    push_provider: str = "log"
+    push_fcm_credentials_json: str = ""  # path or inline service-account JSON
+    push_apns_key_id: str = ""
+    push_apns_team_id: str = ""
+    push_apns_key_path: str = ""
+    push_vendor_app_id: str = ""
+    push_vendor_app_secret: str = ""
+
+    # Identity (real-name / face): manual = admin review queue (current behaviour).
+    # aliyun | tencent | wechat → placeholder adapters in trust/identity_provider.py.
+    identity_provider: str = "manual"
+    identity_access_key_id: str = ""
+    identity_access_key_secret: str = ""
+
+    # Map / geocoding: none = city text only, no coordinate lookups.
+    # amap | tencent | baidu → placeholder adapters in shared/geo_provider.py.
+    map_provider: str = "none"
+    map_server_key: str = ""
+
+    # CDN in front of media (empty = serve media_public_base / oss_public_endpoint directly)
+    cdn_base_url: str = ""
+
+    # Operational launch metadata (surfaced in admin → system status; not enforced)
+    icp_record_no: str = ""  # e.g. 京ICP备XXXXXXXX号-X
+    public_base_url: str = ""  # https://api.example.com
+    privacy_policy_url: str = ""
+    terms_url: str = ""
+
+    # Analytics ingestion / retention / client config
+    analytics_enabled: bool = True  # kill switch, also returned to clients
+    analytics_sample_rate: float = 1.0  # global client-side sampling (per session)
+    analytics_max_batch: int = 50
+    analytics_max_event_age_days: int = 7  # older client events are rejected (clock/offline abuse)
+    analytics_max_future_seconds: int = 300
+    analytics_ingest_per_minute: int = 60  # per anon_id
+    analytics_ingest_ip_per_minute: int = 240  # per IP (NAT friendly)
+    analytics_retention_days: int = 180  # raw events; aggregates are kept
+    analytics_ip_hash_days: int = 30  # ip_hash is nulled after this
+    analytics_export_max_rows: int = 50_000
+    analytics_query_max_days: int = 31
+
     # Age gate
     min_age: int = 18
 

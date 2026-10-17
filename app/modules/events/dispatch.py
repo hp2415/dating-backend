@@ -29,6 +29,7 @@ async def dispatch_event(event: DomainEvent) -> None:
         DomainEventName.OPS_PING: _handle_ops_ping,
         DomainEventName.ACTIVITY_REVIEWED: _notify_activity_reviewed,
         DomainEventName.ACTIVITY_CANCELLED: _notify_activity_cancelled,
+        DomainEventName.ACTIVITY_WAITLIST_PROMOTED: _notify_waitlist_promoted,
         DomainEventName.COMMUNITY_POST_REVIEWED: _notify_post_reviewed,
         DomainEventName.REPORT_RESOLVED: _handle_log_only,
         DomainEventName.MEDIA_REVIEWED: _handle_log_only,
@@ -126,7 +127,7 @@ async def _notify_activity_cancelled(event: DomainEvent) -> None:
         rows = await db.execute(
             select(ActivityParticipant.user_id).where(
                 ActivityParticipant.activity_id == activity_id,
-                ActivityParticipant.status == "joined",
+                ActivityParticipant.status.in_(["joined", "waitlisted"]),
                 ActivityParticipant.user_id != activity.host_id,
             )
         )
@@ -145,6 +146,29 @@ async def _notify_activity_cancelled(event: DomainEvent) -> None:
                 target_type="activity",
                 target_id=str(activity.id),
             )
+        await db.commit()
+
+
+async def _notify_waitlist_promoted(event: DomainEvent) -> None:
+    activity_id = _as_uuid(event.aggregate_id)
+    user_id = _as_uuid((event.payload or {}).get("user_id"))
+    if activity_id is None or user_id is None:
+        return
+    async with SessionLocal() as db:
+        activity = await db.get(Activity, activity_id)
+        if activity is None:
+            return
+        await _notify(
+            db,
+            event,
+            user_id=user_id,
+            category=NotificationCategory.ACTIVITY.value,
+            title="候补成功，已为你报名",
+            body=activity.title or "",
+            deep_link=f"spark://activity/{activity.id}",
+            target_type="activity",
+            target_id=str(activity.id),
+        )
         await db.commit()
 
 

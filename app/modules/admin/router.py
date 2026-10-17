@@ -72,13 +72,14 @@ async def dashboard_summary(
 async def list_reports(
     request: Request,
     status: str | None = Query(default="pending"),
+    target_kind: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     admin: AdminUser = Depends(require_perm("report:read")),
     db: AsyncSession = Depends(get_db),
 ):
     _ = admin
-    data = await ModerationService(db).list_reports(status, limit, offset)
+    data = await ModerationService(db).list_reports(status, limit, offset, target_kind)
     return ok(data, request_id=get_request_id(request))
 
 
@@ -232,7 +233,7 @@ async def list_audit_logs(
     day_to: date | None = Query(default=None, alias="to"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    admin: AdminUser = Depends(require_perm("dashboard:read")),
+    admin: AdminUser = Depends(require_perm("audit:read")),
     db: AsyncSession = Depends(get_db),
 ):
     _ = admin

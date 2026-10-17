@@ -30,6 +30,12 @@ from app.modules.admin.companion import router as admin_companion_router
 from app.modules.admin.trust import router as admin_trust_router
 from app.modules.admin.ops import router as admin_ops_router
 from app.modules.admin.users import router as admin_users_router
+from app.modules.admin.orgs import router as admin_orgs_router
+from app.modules.admin.system import router as admin_system_router
+from app.modules.admin.analytics import router as admin_analytics_router
+from app.modules.admin.accounts import router as admin_accounts_router
+from app.modules.clubs.router import router as clubs_router
+from app.modules.clubs.seed import ensure_official_clubs
 from app.modules.companion.router import router as companion_router
 from app.modules.trust.router import router as trust_router
 from app.modules.ops.router import router as ops_router
@@ -67,6 +73,7 @@ async def lifespan(_: FastAPI):
         await ensure_demo_users(session)
         await ensure_membership_plans(session)
         await ensure_default_taxonomies(session)
+        await ensure_official_clubs(session)
     yield
     await close_redis()
     await engine.dispose()
@@ -118,6 +125,11 @@ app.include_router(admin_companion_router)
 app.include_router(admin_trust_router)
 app.include_router(admin_ops_router)
 app.include_router(admin_users_router)
+app.include_router(admin_orgs_router)
+app.include_router(admin_system_router)
+app.include_router(admin_analytics_router)
+app.include_router(admin_accounts_router)
+app.include_router(clubs_router)
 app.include_router(events_ops_router)
 
 if settings.storage_driver == "local":

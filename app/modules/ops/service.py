@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ops.push_provider import PushMessage, push_to_users
 from app.models import (
     Announcement,
     AnnouncementStatus,
@@ -333,6 +334,11 @@ class OpsService:
         )
         self.db.add(row)
         await self.db.flush()
+        await push_to_users(
+            self.db,
+            [user_id],
+            PushMessage(title=row.title, body=row.body, deep_link=deep_link, data={"notification_id": str(row.id), **(payload or {})}),
+        )
         return row
 
     async def list_notifications(

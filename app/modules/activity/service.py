@@ -1,21 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     Activity,
     ActivityComment,
+    ActivityJourney,
     ActivityDetail,
     ActivityFavorite,
     ActivityLike,
     ActivityParticipant,
     ActivityStatus,
     AuditStatus,
+    Conversation,
+    ConversationKind,
+    ConversationMember,
+    MemberStatus,
     FeeType,
     MediaAsset,
     ParticipantRole,
@@ -85,6 +90,44 @@ class ActivityDetailsRequest(BaseModel):
     registration_notes: list | None = None
     host_note: str | None = Field(default=None, max_length=4000)
     gallery: list | None = None
+
+
+class JoinActivityRequest(BaseModel):
+    """报名可选「给发起人留言」；非空时同时向发起人发一条好友申请（source=activity）。"""
+
+    note: str | None = Field(default=None, max_length=200)
+
+
+class JourneyUpdateRequest(BaseModel):
+    steps: dict | None = None
+    feedback: dict | None = None
+
+
+_JOURNEY_STEP_KEYS = {"marked_arrived": bool, "arrived_at": int, "opened_activity_group": bool}
+_JOURNEY_FEEDBACK_KEYS = {
+    "feedback_submitted": bool,
+    "feedback_skipped": bool,
+    "feedback_highlight": str,
+    "recap_published": bool,
+    "recap_skipped": bool,
+}
+
+
+def _pick(data: dict | None, spec: dict) -> dict:
+    out: dict = {}
+    for key, typ in spec.items():
+        if data and key in data and data[key] is not None:
+            val = data[key]
+            if typ is bool:
+                out[key] = bool(val)
+            elif typ is int:
+                try:
+                    out[key] = int(val)
+                except (TypeError, ValueError):
+                    continue
+            else:
+                out[key] = str(val)[:200]
+    return out
 
 
 class CreateCommentRequest(BaseModel):
@@ -193,46 +236,81 @@ class ActivityService:
         activity = await self._get_visible(activity_id, user.id)
         return await self._brief(activity, viewer_id=user.id, include_members=True)
 
-    async def join(self, user: User, activity_id: UUID) -> dict:
-        if user.status == UserStatus.LIMITED.value:
-            raise AppError(ErrorCodes.USER_LIMITED, "账号功能受限，无法报名", status_code=403)
-        activity = await self._get_published(activity_id)
-        existing = await self.db.execute(
-            select(ActivityParticipant).where(
+    async def _lock_activity(self, activity_id: UUID) -> Activity:
+        result = await self.db.execute(select(Activity).where(Activity.id == activity_id).with_for_update())
+        activity = result.scalar_one_or_none()
+        if activity is None or activity.status != ActivityStatus.PUBLISHED.value:
+            raise AppError(ErrorCodes.ACTIVITY_NOT_FOUND, "活动不存在或未发布", status_code=404)
+        return activity
+
+    async def _participant(self, activity_id: UUID, user_id: UUID) -> ActivityParticipant | None:
+        return (
+            await self.db.execute(
+                select(ActivityParticipant).where(
+                    ActivityParticipant.activity_id == activity_id,
+                    ActivityParticipant.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def _waitlist_position(self, activity_id: UUID, row: ActivityParticipant) -> int:
+        ahead = await self.db.scalar(
+            select(func.count())
+            .select_from(ActivityParticipant)
+            .where(
                 ActivityParticipant.activity_id == activity_id,
-                ActivityParticipant.user_id == user.id,
+                ActivityParticipant.status == ParticipantStatus.WAITLISTED.value,
+                ActivityParticipant.waitlisted_at <= (row.waitlisted_at or datetime.now(timezone.utc)),
             )
         )
-        row = existing.scalar_one_or_none()
+        return max(1, int(ahead or 1))
+
+    async def join(self, user: User, activity_id: UUID, body: JoinActivityRequest | None = None) -> dict:
+        if user.status == UserStatus.LIMITED.value:
+            raise AppError(ErrorCodes.USER_LIMITED, "账号功能受限，无法报名", status_code=403)
+        note = ((body.note if body else None) or "").strip()
+        if note:
+            from app.modules.safety.content_safety import guard_text
+
+            await guard_text(self.db, note, scene="activity_join_note")
+        activity = await self._lock_activity(activity_id)  # row lock: capacity check is race-free
+        row = await self._participant(activity_id, user.id)
         if row and row.status == ParticipantStatus.JOINED.value:
             return {"joined": True, "join_count": activity.join_count, "already": True}
+        if activity.host_id == user.id:
+            raise AppError(ErrorCodes.ACTIVITY_FORBIDDEN, "发起人已在活动中", status_code=403)
         if activity.join_count >= activity.capacity:
-            raise AppError(ErrorCodes.ACTIVITY_FULL, "活动名额已满", status_code=409)
+            raise AppError(ErrorCodes.ACTIVITY_FULL, "活动名额已满，可加入候补", status_code=409)
 
         if row:
             row.status = ParticipantStatus.JOINED.value
             row.role = ParticipantRole.MEMBER.value
+            row.waitlisted_at = None
         else:
-            self.db.add(
-                ActivityParticipant(
-                    id=uuid4(),
-                    activity_id=activity_id,
-                    user_id=user.id,
-                    role=ParticipantRole.MEMBER.value,
-                    status=ParticipantStatus.JOINED.value,
-                )
+            row = ActivityParticipant(
+                id=uuid4(),
+                activity_id=activity_id,
+                user_id=user.id,
+                role=ParticipantRole.MEMBER.value,
+                status=ParticipantStatus.JOINED.value,
             )
+            self.db.add(row)
+        row.note = note or None
         activity.join_count = int(activity.join_count or 0) + 1
         from app.modules.events.service import DomainEventName, DomainEventService
         from app.modules.messaging.service import MessagingService
 
-        await MessagingService(self.db).ensure_activity_group(activity, user.id)
+        messaging = MessagingService(self.db)
+        await messaging.ensure_activity_group(activity, user.id)
         await DomainEventService(self.db).enqueue(
             name=DomainEventName.ACTIVITY_JOINED,
             aggregate_kind="activity",
             aggregate_id=activity.id,
-            payload={"user_id": str(user.id), "host_id": str(activity.host_id)},
+            payload={"user_id": str(user.id), "host_id": str(activity.host_id), "has_note": bool(note)},
         )
+        friend_request_sent = False
+        if note:
+            friend_request_sent = await self._note_to_friend_request(messaging, user, activity, note)
         await self.db.commit()
         try:
             from app.modules.recommend.service import RecommendService
@@ -240,7 +318,62 @@ class ActivityService:
             await RecommendService(self.db).record_engagement_silent(user.id, activity, "join")
         except Exception:  # noqa: BLE001
             pass
-        return {"joined": True, "join_count": activity.join_count, "already": False}
+        return {
+            "joined": True,
+            "join_count": activity.join_count,
+            "already": False,
+            "friend_request_sent": friend_request_sent,
+        }
+
+    async def _note_to_friend_request(self, messaging, user: User, activity: Activity, note: str) -> bool:
+        """报名留言 → 好友申请。已是好友 / 已拉黑 / 已有待处理申请时静默跳过，不影响报名。"""
+        try:
+            async with self.db.begin_nested():
+                await messaging.send_friend_request(
+                    user,
+                    to_user_id=activity.host_id,
+                    to_uid=None,
+                    to_phone=None,
+                    message=note,
+                    source="activity",
+                )
+            return True
+        except AppError:
+            return False
+
+    async def _promote_waitlist(self, activity: Activity) -> list[UUID]:
+        """Fill free seats from the waitlist (FIFO). Caller holds the activity row lock."""
+        promoted: list[UUID] = []
+        from app.modules.events.service import DomainEventName, DomainEventService
+        from app.modules.messaging.service import MessagingService
+
+        while activity.join_count < activity.capacity:
+            nxt = (
+                await self.db.execute(
+                    select(ActivityParticipant)
+                    .where(
+                        ActivityParticipant.activity_id == activity.id,
+                        ActivityParticipant.status == ParticipantStatus.WAITLISTED.value,
+                    )
+                    .order_by(ActivityParticipant.waitlisted_at.asc().nullslast())
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                )
+            ).scalar_one_or_none()
+            if nxt is None:
+                break
+            nxt.status = ParticipantStatus.JOINED.value
+            nxt.waitlisted_at = None
+            activity.join_count = int(activity.join_count or 0) + 1
+            await MessagingService(self.db).ensure_activity_group(activity, nxt.user_id)
+            await DomainEventService(self.db).enqueue(
+                name=DomainEventName.ACTIVITY_WAITLIST_PROMOTED,
+                aggregate_kind="activity",
+                aggregate_id=activity.id,
+                payload={"user_id": str(nxt.user_id)},
+            )
+            promoted.append(nxt.user_id)
+        return promoted
 
     async def quit(self, user: User, activity_id: UUID) -> dict:
         activity = await self.db.get(Activity, activity_id)
@@ -248,21 +381,145 @@ class ActivityService:
             raise AppError(ErrorCodes.ACTIVITY_NOT_FOUND, "活动不存在", status_code=404)
         if activity.host_id == user.id:
             raise AppError(ErrorCodes.ACTIVITY_FORBIDDEN, "发起人不能退出，请取消活动", status_code=403)
+        activity = (
+            await self.db.execute(select(Activity).where(Activity.id == activity_id).with_for_update())
+        ).scalar_one()
 
-        result = await self.db.execute(
-            select(ActivityParticipant).where(
-                ActivityParticipant.activity_id == activity_id,
-                ActivityParticipant.user_id == user.id,
-                ActivityParticipant.status == ParticipantStatus.JOINED.value,
-            )
-        )
-        row = result.scalar_one_or_none()
-        if row is None:
+        row = await self._participant(activity_id, user.id)
+        if row is None or row.status not in {ParticipantStatus.JOINED.value, ParticipantStatus.WAITLISTED.value}:
             return {"joined": False, "join_count": activity.join_count}
+        was_joined = row.status == ParticipantStatus.JOINED.value
         row.status = ParticipantStatus.QUIT.value
-        activity.join_count = max(int(activity.join_count or 1) - 1, 1)
+        row.waitlisted_at = None
+        if was_joined:
+            activity.join_count = max(int(activity.join_count or 1) - 1, 1)
+            await self._leave_activity_group(activity, user.id)
+            await self._promote_waitlist(activity)
         await self.db.commit()
         return {"joined": False, "join_count": activity.join_count}
+
+    async def _leave_activity_group(self, activity: Activity, user_id: UUID) -> None:
+        conv_id = await self.db.scalar(
+            select(Conversation.id).where(
+                Conversation.related_activity_id == activity.id,
+                Conversation.kind == ConversationKind.ACTIVITY.value,
+            )
+        )
+        if conv_id is None:
+            return
+        member = (
+            await self.db.execute(
+                select(ConversationMember).where(
+                    ConversationMember.conversation_id == conv_id,
+                    ConversationMember.user_id == user_id,
+                    ConversationMember.status == MemberStatus.ACTIVE.value,
+                )
+            )
+        ).scalar_one_or_none()
+        if member is not None:
+            member.status = MemberStatus.LEFT.value
+
+    async def join_waitlist(self, user: User, activity_id: UUID) -> dict:
+        if user.status == UserStatus.LIMITED.value:
+            raise AppError(ErrorCodes.USER_LIMITED, "账号功能受限，无法报名", status_code=403)
+        activity = await self._lock_activity(activity_id)
+        if activity.host_id == user.id:
+            raise AppError(ErrorCodes.ACTIVITY_FORBIDDEN, "发起人已在活动中", status_code=403)
+        row = await self._participant(activity_id, user.id)
+        if row and row.status == ParticipantStatus.JOINED.value:
+            raise AppError(ErrorCodes.ACTIVITY_ALREADY_JOINED, "你已报名该活动", status_code=409)
+        if activity.join_count < activity.capacity:
+            raise AppError(ErrorCodes.ACTIVITY_INVALID, "还有名额，请直接报名", status_code=409)
+        if row is None:
+            row = ActivityParticipant(
+                id=uuid4(), activity_id=activity_id, user_id=user.id, role=ParticipantRole.MEMBER.value
+            )
+            self.db.add(row)
+        if row.status != ParticipantStatus.WAITLISTED.value or row.waitlisted_at is None:
+            row.waitlisted_at = datetime.now(timezone.utc)
+        row.status = ParticipantStatus.WAITLISTED.value
+        await self.db.flush()
+        position = await self._waitlist_position(activity_id, row)
+        await self.db.commit()
+        return {"waitlisted": True, "position": position, "join_count": activity.join_count}
+
+    async def leave_waitlist(self, user: User, activity_id: UUID) -> dict:
+        row = await self._participant(activity_id, user.id)
+        if row is not None and row.status == ParticipantStatus.WAITLISTED.value:
+            row.status = ParticipantStatus.QUIT.value
+            row.waitlisted_at = None
+            await self.db.commit()
+        return {"waitlisted": False}
+
+    async def my_status(self, user: User, activity_id: UUID) -> dict:
+        activity = await self.db.get(Activity, activity_id)
+        if activity is None:
+            raise AppError(ErrorCodes.ACTIVITY_NOT_FOUND, "活动不存在", status_code=404)
+        if activity.host_id == user.id:
+            return {"status": "host", "waitlist_position": None, "note": None}
+        row = await self._participant(activity_id, user.id)
+        if row is None:
+            return {"status": "none", "waitlist_position": None, "note": None}
+        position = None
+        if row.status == ParticipantStatus.WAITLISTED.value:
+            position = await self._waitlist_position(activity_id, row)
+        return {"status": row.status, "waitlist_position": position, "note": row.note}
+
+    async def my_activities(self, user: User, *, status: str) -> dict:
+        """我的报名：joined | waitlisted（候补）。"""
+        want = ParticipantStatus.WAITLISTED.value if status == "waitlisted" else ParticipantStatus.JOINED.value
+        rows = (
+            await self.db.execute(
+                select(Activity)
+                .join(ActivityParticipant, ActivityParticipant.activity_id == Activity.id)
+                .where(ActivityParticipant.user_id == user.id, ActivityParticipant.status == want)
+                .order_by(Activity.start_at.asc().nullslast())
+                .limit(100)
+            )
+        ).scalars().all()
+        return {"items": [await self._brief(a, viewer_id=user.id, include_members=False) for a in rows]}
+
+    async def get_journey(self, user: User, activity_id: UUID) -> dict:
+        await self._require_participant(user, activity_id)
+        row = (
+            await self.db.execute(
+                select(ActivityJourney).where(ActivityJourney.activity_id == activity_id, ActivityJourney.user_id == user.id)
+            )
+        ).scalar_one_or_none()
+        return self._journey_brief(activity_id, row)
+
+    async def put_journey(self, user: User, activity_id: UUID, body: JourneyUpdateRequest) -> dict:
+        await self._require_participant(user, activity_id)
+        row = (
+            await self.db.execute(
+                select(ActivityJourney).where(ActivityJourney.activity_id == activity_id, ActivityJourney.user_id == user.id)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            row = ActivityJourney(id=uuid4(), activity_id=activity_id, user_id=user.id, steps={}, feedback={})
+            self.db.add(row)
+        row.steps = {**(row.steps or {}), **_pick(body.steps, _JOURNEY_STEP_KEYS)}
+        row.feedback = {**(row.feedback or {}), **_pick(body.feedback, _JOURNEY_FEEDBACK_KEYS)}
+        await self.db.commit()
+        return self._journey_brief(activity_id, row)
+
+    def _journey_brief(self, activity_id: UUID, row: ActivityJourney | None) -> dict:
+        return {
+            "activity_id": str(activity_id),
+            "steps": dict(row.steps) if row else {},
+            "feedback": dict(row.feedback) if row else {},
+            "updated_at": row.updated_at.isoformat() if row and row.updated_at else None,
+        }
+
+    async def _require_participant(self, user: User, activity_id: UUID) -> None:
+        activity = await self.db.get(Activity, activity_id)
+        if activity is None:
+            raise AppError(ErrorCodes.ACTIVITY_NOT_FOUND, "活动不存在", status_code=404)
+        if activity.host_id == user.id:
+            return
+        row = await self._participant(activity_id, user.id)
+        if row is None or row.status != ParticipantStatus.JOINED.value:
+            raise AppError(ErrorCodes.ACTIVITY_FORBIDDEN, "仅参与者可查看行程", status_code=403)
 
     async def list_members(self, user: User, activity_id: UUID) -> dict:
         await self._get_visible(activity_id, user.id)
@@ -336,6 +593,9 @@ class ActivityService:
         if user.status == UserStatus.LIMITED.value:
             raise AppError(ErrorCodes.USER_LIMITED, "账号功能受限，无法评论", status_code=403)
         activity = await self._get_published(activity_id)
+        from app.modules.safety.content_safety import guard_text
+
+        await guard_text(self.db, body.content, scene="activity_comment")
         comment = ActivityComment(
             id=uuid4(),
             activity_id=activity_id,
@@ -348,6 +608,19 @@ class ActivityService:
         await self.db.commit()
         await self.db.refresh(comment)
         return await self._comment_brief(comment)
+
+    async def delete_comment(self, user: User, activity_id: UUID, comment_id: UUID) -> dict:
+        comment = await self.db.get(ActivityComment, comment_id)
+        if comment is None or comment.activity_id != activity_id or comment.status != "visible":
+            raise AppError(ErrorCodes.ACTIVITY_NOT_FOUND, "评论不存在", status_code=404)
+        activity = await self.db.get(Activity, activity_id)
+        if comment.author_id != user.id and (activity is None or activity.host_id != user.id):
+            raise AppError(ErrorCodes.ACTIVITY_FORBIDDEN, "无权删除该评论", status_code=403)
+        comment.status = "deleted"
+        if activity is not None:
+            activity.comment_count = max(0, int(activity.comment_count or 1) - 1)
+        await self.db.commit()
+        return {"deleted": True}
 
     async def _normalize_media(self, user_id: UUID, items: list[MediaItemIn]) -> list[dict]:
         out: list[dict] = []
@@ -435,6 +708,8 @@ class ActivityService:
         for key, value in payload.items():
             if value is not None or key in ("fee_note", "description", "city", "address", "lat", "lng"):
                 setattr(activity, key, value)
+        if "capacity" in payload and activity.status == ActivityStatus.PUBLISHED.value:
+            await self._promote_waitlist(activity)  # 扩容后候补自动递补
         # Host edits on published activity stay published; pending stays pending.
         await self.db.commit()
         await self.db.refresh(activity)

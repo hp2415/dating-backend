@@ -567,6 +567,12 @@ class TrustService:
         row.assignee_admin_id = row.assignee_admin_id or admin.id
         row.reason_code = reason_code
         row.admin_note = (admin_note or "")[:500] or None
+        if not approve and row.target_kind == "club":
+            from app.models import Club, ClubStatus
+
+            club = await self.db.get(Club, row.target_id)
+            if club is not None and club.status == ClubStatus.ACTIVE.value:
+                club.status = ClubStatus.HIDDEN.value
         await self.db.flush()
         return self.moderation_brief(row)
 

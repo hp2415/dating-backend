@@ -14,6 +14,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.shared.config import settings
+from app.shared.errors import AppError
+from app.shared.response import ErrorCodes
 
 
 @dataclass
@@ -136,7 +138,10 @@ def get_payment_provider(method: str) -> PaymentProvider:
     provider = _PROVIDERS.get(key)
     if provider is None:
         raise ValueError(f"unsupported pay method: {method}")
-    # Future: if settings.payment_provider == "wechat_real": return WechatRealProvider()
+    if key != "wallet" and (settings.payment_provider or "stub").strip().lower() != "stub":
+        # A real channel was requested but no adapter exists yet: refuse instead of silently
+        # settling orders through the demo stub.
+        raise AppError(ErrorCodes.PAYMENT_INVALID, "支付通道尚未接入", status_code=503)
     return provider
 
 

@@ -190,6 +190,7 @@ class AdminRole(str, Enum):
     SUPPORT = "support"
     READONLY = "readonly"
     FINANCE = "finance"
+    ANALYST = "analyst"
 
 
 class AdminUser(Base):
@@ -289,6 +290,7 @@ class ReportResolution(str, Enum):
     WARN = "warn"
     LIMIT = "limit"
     BAN = "ban"
+    TAKEDOWN = "takedown"  # 下架被举报内容（动态/俱乐部/工会），不处罚人
 
 
 class Report(Base):
@@ -296,7 +298,13 @@ class Report(Base):
 
     id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     reporter_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    target_user_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    target_user_id: Mapped[Optional[PyUUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    # user | post | comment | activity | club | guild | conversation | message
+    target_kind: Mapped[str] = mapped_column(String(16), default="user", nullable=False, index=True)
+    target_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    snapshot: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     reason: Mapped[str] = mapped_column(String(32), nullable=False)
     detail: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=ReportStatus.PENDING.value, nullable=False, index=True)
@@ -404,6 +412,7 @@ class ParticipantRole(str, Enum):
 
 class ParticipantStatus(str, Enum):
     JOINED = "joined"
+    WAITLISTED = "waitlisted"
     QUIT = "quit"
     KICKED = "kicked"
 
@@ -482,6 +491,8 @@ class ActivityParticipant(Base):
     user_id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(16), default=ParticipantRole.MEMBER.value, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default=ParticipantStatus.JOINED.value, nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    waitlisted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -944,6 +955,8 @@ class ConversationMember(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     unread_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 「清空聊天记录」水位线：早于此刻的消息对该成员不再展示（多端同步）
+    cleared_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=MemberStatus.ACTIVE.value, nullable=False, index=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

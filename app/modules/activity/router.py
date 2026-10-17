@@ -10,6 +10,8 @@ from app.modules.activity.service import (
     CancelActivityRequest,
     CreateActivityRequest,
     CreateCommentRequest,
+    JoinActivityRequest,
+    JourneyUpdateRequest,
     UpdateActivityRequest,
 )
 from app.shared.deps import get_current_user, get_db, get_request_id
@@ -43,6 +45,17 @@ async def list_activities(
     data = await ActivityService(db).list_feed(
         user, city=city, category=category, mine=mine, limit=limit, offset=offset
     )
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/mine")
+async def my_activities(
+    request: Request,
+    status: str = Query(default="joined", pattern="^(joined|waitlisted)$"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await ActivityService(db).my_activities(user, status=status)
     return ok(data, request_id=get_request_id(request))
 
 
@@ -156,10 +169,11 @@ async def unfavorite_activity(
 async def join_activity(
     activity_id: UUID,
     request: Request,
+    body: JoinActivityRequest | None = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    data = await ActivityService(db).join(user, activity_id)
+    data = await ActivityService(db).join(user, activity_id, body)
     return ok(data, request_id=get_request_id(request))
 
 
@@ -229,4 +243,72 @@ async def add_comment(
     db: AsyncSession = Depends(get_db),
 ):
     data = await ActivityService(db).add_comment(user, activity_id, body)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.post("/{activity_id}/waitlist")
+async def join_waitlist(
+    activity_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await ActivityService(db).join_waitlist(user, activity_id)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.delete("/{activity_id}/waitlist")
+async def leave_waitlist(
+    activity_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await ActivityService(db).leave_waitlist(user, activity_id)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/{activity_id}/my-status")
+async def my_status(
+    activity_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await ActivityService(db).my_status(user, activity_id)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.get("/{activity_id}/journey")
+async def get_journey(
+    activity_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await ActivityService(db).get_journey(user, activity_id)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.put("/{activity_id}/journey")
+async def put_journey(
+    activity_id: UUID,
+    body: JourneyUpdateRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await ActivityService(db).put_journey(user, activity_id, body)
+    return ok(data, request_id=get_request_id(request))
+
+
+@router.delete("/{activity_id}/comments/{comment_id}")
+async def delete_comment(
+    activity_id: UUID,
+    comment_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await ActivityService(db).delete_comment(user, activity_id, comment_id)
     return ok(data, request_id=get_request_id(request))

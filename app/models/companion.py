@@ -149,6 +149,7 @@ class CompanionProfile(Base):
     )
     service_type: Mapped[str] = mapped_column(String(16), default=CompanionServiceType.OFFLINE.value, index=True)
     specialty: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    guild_id: Mapped[Optional[PyUUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     intro: Mapped[str] = mapped_column(Text, default="", nullable=False)
     response_time_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     order_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
